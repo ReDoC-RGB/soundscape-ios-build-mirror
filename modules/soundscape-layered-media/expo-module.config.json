@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["SoundscapeLayeredMediaModule"]
+  },
+  "android": {
+    "modules": ["com.wellmadesystems.soundscape.media.SoundscapeLayeredMediaModule"]
+  }
+}

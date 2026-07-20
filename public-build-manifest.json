@@ -1,0 +1,435 @@
+{
+  "canonicalPrivateCommit": "3847b2cb9c5ee1d0c8205f24bb25ea6c8be13347",
+  "exportedPaths": [
+    {
+      "path": ".github/workflows/ios-internal.yml",
+      "byteLength": 13979,
+      "sha256": "7ebe6f52d3573b57088902f0bd08787b02ee41e2fd0ccd0eeddb729d65ea8e7a"
+    },
+    {
+      "path": "App.tsx",
+      "byteLength": 546436,
+      "sha256": "ccfb2bfc70dfd596d0feb53f9d14dd35f18373f71098446de506763760694139"
+    },
+    {
+      "path": "README.md",
+      "byteLength": 1204,
+      "sha256": "72d9ff80cf1eff090c84ade45f094be15aa5d6a6e49a00b0afaf687603d17338"
+    },
+    {
+      "path": "app.config.js",
+      "byteLength": 1856,
+      "sha256": "9e2966964383d34e456efd70bca511e1c0373c4477ee13e0a8f40caf8ace707e"
+    },
+    {
+      "path": "app.json",
+      "byteLength": 1321,
+      "sha256": "7f3aa62bc3c2642415853797d5f433df6e8676a2e233ffbabab2e6df7784d11c"
+    },
+    {
+      "path": "assets/icon.png",
+      "byteLength": 30464,
+      "sha256": "f3f6b4725d579ebd952f03abc0fb034c05ec089acbf0a83b18388608e2549d41"
+    },
+    {
+      "path": "assets/splash.png",
+      "byteLength": 71006,
+      "sha256": "0c68a78fda0ffd6976d8ac240201971a380d627b5061fe4eb88ba348866cf383"
+    },
+    {
+      "path": "index.ts",
+      "byteLength": 307,
+      "sha256": "5c157f4d44972d9c84415e1e4bda595b3abcd8cf733f8a9cd20935bec3eccc42"
+    },
+    {
+      "path": "modules/soundscape-layered-media/expo-module.config.json",
+      "byteLength": 211,
+      "sha256": "d2157ddbe423294ff54771b57a5b8457707ed6a9ec08f3dc5eb29e20eccc68c4"
+    },
+    {
+      "path": "modules/soundscape-layered-media/index.ts",
+      "byteLength": 119,
+      "sha256": "7c3eeb9da609a1a175a0e968eaf1ccc6964567bed88d0f381d27a99d27d09dcc"
+    },
+    {
+      "path": "modules/soundscape-layered-media/ios/DirectedSessionSchedulerV1.swift",
+      "byteLength": 38117,
+      "sha256": "33965ce3ac5423ddb7151c7383b7217537b3af42cc777152174efcbc1bb691bd"
+    },
+    {
+      "path": "modules/soundscape-layered-media/ios/SoundscapeLayeredMedia.podspec",
+      "byteLength": 767,
+      "sha256": "3c944cbe219210eb74c8ae32643166875904865737cb7916e4e102ddaa335842"
+    },
+    {
+      "path": "modules/soundscape-layered-media/ios/SoundscapeLayeredMediaModule.swift",
+      "byteLength": 56600,
+      "sha256": "ffb37a336d69b72acd14ad282804c19f143f027fe5b460d76c9a87f1ffb6c3aa"
+    },
+    {
+      "path": "modules/soundscape-layered-media/src/SoundscapeLayeredMedia.types.ts",
+      "byteLength": 9239,
+      "sha256": "f8a8eee5a6461a4a4ecb7911740fcd35be676e22aef22ed7ff6dfd573a21173b"
+    },
+    {
+      "path": "modules/soundscape-layered-media/src/SoundscapeLayeredMediaModule.ts",
+      "byteLength": 3269,
+      "sha256": "db5211a3e1bc74a6aa525a136356de6ba550275f3cf2a4a71d916fc8f219fbde"
+    },
+    {
+      "path": "modules/soundscape-layered-media/src/nativePayload.ts",
+      "byteLength": 2063,
+      "sha256": "204ab4286aaafd67d5604412ac07bfc9c644db5655670d297109bd29db758fac"
+    },
+    {
+      "path": "package-lock.json",
+      "byteLength": 364996,
+      "sha256": "216236a7e2b572e29f4d7a940d6dda33a416d8a59bab8cb186ca5bb65f322b47"
+    },
+    {
+      "path": "package.json",
+      "byteLength": 3901,
+      "sha256": "89f8bfe4725acfd5506a94d77503749d70cd1d89b4bcf1d99c344e284c15be8c"
+    },
+    {
+      "path": "scripts/prepare-public-build-v1.mjs",
+      "byteLength": 4265,
+      "sha256": "471de62804adf39a64de4e7971fe07258fbffdb62deee2c28e45fccd462261d2"
+    },
+    {
+      "path": "src/builderSessionAdapterV1.ts",
+      "byteLength": 7756,
+      "sha256": "d95f3f5ee0d20346d5b2b3a21d6e9fb2ec6a5f74161fe458aad4e5e9a0174327"
+    },
+    {
+      "path": "src/builderSessionModelV1.ts",
+      "byteLength": 20127,
+      "sha256": "cb99cfecd973461783488163e4bc793a4d850343683a61d2dd29937a2b1f96f5"
+    },
+    {
+      "path": "src/catalog/m6BuilderCandidateAdapterV1.ts",
+      "byteLength": 1154,
+      "sha256": "0f2dea1ed08fcd84b0e3d74f5e8355e0d4bee96ec88e2482a51a56842bdda88e"
+    },
+    {
+      "path": "src/catalog/m6BuilderDiscoveryV1.ts",
+      "byteLength": 4550,
+      "sha256": "18a89386f24de5f45e0358d573af72ff02c1696a72d27c93dc71a4d037bdf261"
+    },
+    {
+      "path": "src/catalog/m6CatalogExpansionV1.ts",
+      "byteLength": 32427,
+      "sha256": "0d4f7204873477af7e2f5869c6ce70dd2169c3f5c0efd0947d5a56b05dc05df4"
+    },
+    {
+      "path": "src/catalog/m6InternalPhysicalReviewV1.ts",
+      "byteLength": 5230,
+      "sha256": "e6b99e11ca4142117a9e2832b37ee2ba95c46bdec427b9073fb137e0d81844b2"
+    },
+    {
+      "path": "src/catalog/m6MobileCatalogAdapterV1.ts",
+      "byteLength": 189,
+      "sha256": "47ce04c7ff5345d1fc4f2dd9de7921f284d6aa45ec3aa7afda29d4729900dd79"
+    },
+    {
+      "path": "src/catalog/m6PlaybackPreparationV1.ts",
+      "byteLength": 1471,
+      "sha256": "eb415f9fd8c124bdd3e54fb49a232d275d64987be351e1366457732d69c89e80"
+    },
+    {
+      "path": "src/catalog/m6ProductCatalogV1.ts",
+      "byteLength": 6680,
+      "sha256": "5133935d5a5fe9919d43c3de244eb9b7f0f3fb96e55b1f89eae380b997318fbd"
+    },
+    {
+      "path": "src/catalog/m6ProtectedDiscoveryV1.ts",
+      "byteLength": 1391,
+      "sha256": "448597b47bcc4a90539e6c36f313b816634396138d1b8a2d14997acb57314aef"
+    },
+    {
+      "path": "src/catalog/m7OfflineDeliveryCatalogV1.ts",
+      "byteLength": 2424,
+      "sha256": "cd4ef49a080b73f3545949e91b5f9979972ab1f0548e5795386d662827ee338e"
+    },
+    {
+      "path": "src/catalog/persistentDownloadRightsCatalogV1.ts",
+      "byteLength": 36120,
+      "sha256": "76a0f91be9629595c7d65868da8f3da9c7670605ce8a8a45d23680c445d16584"
+    },
+    {
+      "path": "src/catalog/slowRainReconciledEvidenceV1.ts",
+      "byteLength": 15608,
+      "sha256": "0e9fc7f11330176da27db97d42efc88b97b0c5b714206d1b1af365622f2ffc97"
+    },
+    {
+      "path": "src/coldStartAudioCache.ts",
+      "byteLength": 4520,
+      "sha256": "666df6017f5eadf3685342846f317f6487c260b1ce277b353b78ccfbea288cae"
+    },
+    {
+      "path": "src/contracts/catalogContractV1.ts",
+      "byteLength": 4091,
+      "sha256": "e17ee8b69e0bb4ad3ea6c0f8960ca32bcdc3c8931ce9c6406527e19dcf0320d3"
+    },
+    {
+      "path": "src/contracts/catalogContractV2.ts",
+      "byteLength": 24421,
+      "sha256": "5fd275921f11de58e0329ca16072dae59818af396b5853afa4313723a0d7a9b4"
+    },
+    {
+      "path": "src/contracts/domainErrors.ts",
+      "byteLength": 900,
+      "sha256": "5999044795565f0adb91bfd73e55cf74b218eb7365c58b600d542ca176616f6a"
+    },
+    {
+      "path": "src/contracts/localBackupContractV1.ts",
+      "byteLength": 8185,
+      "sha256": "7b36153dc174287943055a1907732535ebcd3c898d654bc9456f1480b10f4509"
+    },
+    {
+      "path": "src/contracts/localBackupTransportContractV1.ts",
+      "byteLength": 3540,
+      "sha256": "d1d298aea03bd5ee56225a79ab2c40895a0df694d3eae014524a8866db092105"
+    },
+    {
+      "path": "src/contracts/localProfileContractV1.ts",
+      "byteLength": 5086,
+      "sha256": "b6f0f9e3414c74e7032527b4d7d3990d2c77bd8d28cf15aeedfe109021fb931c"
+    },
+    {
+      "path": "src/contracts/offlineManifestContractV1.ts",
+      "byteLength": 8435,
+      "sha256": "7baa5746cdc237b437402b085b42f41ccfe31b98861327b2b1efefa4cd25aa1a"
+    },
+    {
+      "path": "src/contracts/optionalSyncContractV1.ts",
+      "byteLength": 3798,
+      "sha256": "86150f933473ebd79de116c7cc44009ae66f89b7fa8304f82c91bcc4e36f7607"
+    },
+    {
+      "path": "src/contracts/persistenceContractV1.ts",
+      "byteLength": 4138,
+      "sha256": "6d650087eed26862d1ba94b30d41ede2e333f24c4f9ba0bda7537430c7bd9ef9"
+    },
+    {
+      "path": "src/contracts/persistentDownloadRightsContractV1.ts",
+      "byteLength": 4098,
+      "sha256": "6ce8b3ef4e9df70a7576bdfbbd1004ddb0becc22388e03236199c2b571e9c674"
+    },
+    {
+      "path": "src/contracts/playbackSessionContractV1.ts",
+      "byteLength": 6859,
+      "sha256": "27ace548e5ba494bc5c30fadb2210155abe6819b04555cd37bf17fd61c3dfdea"
+    },
+    {
+      "path": "src/contracts/preferenceContractV1.ts",
+      "byteLength": 5620,
+      "sha256": "9cf8cca406ca00943cfa4c2a3f205ba9567194c410cacea35f734d3c723a539c"
+    },
+    {
+      "path": "src/contracts/provenanceContractV1.ts",
+      "byteLength": 4432,
+      "sha256": "c05c9aa145a967da1e793641fba314498b86a38e9e20054f0e51ff45f7660c9b"
+    },
+    {
+      "path": "src/contracts/qcContractV1.ts",
+      "byteLength": 5410,
+      "sha256": "79f20119b9df4707a2ad77cfac3f1171f90629509ef79dfe349f935e6609496d"
+    },
+    {
+      "path": "src/contracts/recommendationContractV1.ts",
+      "byteLength": 5569,
+      "sha256": "b4742c4af7b28f416dccf396ca63acc8dcc8bae892e56ba56e31b26412cfa42f"
+    },
+    {
+      "path": "src/contracts/rightsEvidenceContractV1.ts",
+      "byteLength": 4503,
+      "sha256": "c83f50f444e9418b9d9c8e2f3c204635f2027ea7e91fc56e83e9665324b9b202"
+    },
+    {
+      "path": "src/directedSessions/DirectedSessionsExperienceV1.tsx",
+      "byteLength": 50831,
+      "sha256": "8c828538738979c12b3d926764ff12226972babd116be3a3149c2dc9ad441cb2"
+    },
+    {
+      "path": "src/directedSessions/eligibilityV1.ts",
+      "byteLength": 15570,
+      "sha256": "3d7e5118d21600454d2efc0a14ec43fcdf4199c3c505704b5ac062e1e2575377"
+    },
+    {
+      "path": "src/directedSessions/releaseGateV1.ts",
+      "byteLength": 4467,
+      "sha256": "47f24cc00645b390a46d1e5aecd681358917172987a7928660dd2d5fb57f47e8"
+    },
+    {
+      "path": "src/directedSessions/sceneScoresV1.ts",
+      "byteLength": 28680,
+      "sha256": "3268d9a610dfe0bdefca18b0d97bee7505a1abe2cf5d27795f173a1a53e39348"
+    },
+    {
+      "path": "src/directedSessions/sessionStateV1.ts",
+      "byteLength": 22370,
+      "sha256": "1cf57a361a38e6c42e65147f958bd5bfef7fe29e60d7beeac7da35ed3e7e420f"
+    },
+    {
+      "path": "src/generatedRecipeTransfer.ts",
+      "byteLength": 1212,
+      "sha256": "63f294de1a284b02d30295f1a658754be9a67ccc679513bb4c1221c226646933"
+    },
+    {
+      "path": "src/layerOfflineProjectionV1.ts",
+      "byteLength": 7083,
+      "sha256": "da04ca0157de3f0fd4ef1ac09c58ab88209ea25932d776797241f62f6d99095d"
+    },
+    {
+      "path": "src/layeredPlaybackPolicy.ts",
+      "byteLength": 528,
+      "sha256": "b50edcf4d37bac6375b3cbf7be71f0d227af115634163282041c18eb18b25ed5"
+    },
+    {
+      "path": "src/libraryDiscovery.ts",
+      "byteLength": 20688,
+      "sha256": "353741a59f15f0b191293fa0ed31e97c33b5b8834f1768402d6765cd6cf3fa87"
+    },
+    {
+      "path": "src/librarySoundMetadata.ts",
+      "byteLength": 228374,
+      "sha256": "8d02e9fd35cbaba0ec47ab16dd03ff7d761599a10b021a324eb2350f04ca1870"
+    },
+    {
+      "path": "src/localRecipeEngine.ts",
+      "byteLength": 37465,
+      "sha256": "2af45eddc00e5aff15d8968700a7fc0520d729c26ad9dc8425c0b29adc3c11d0"
+    },
+    {
+      "path": "src/mobileSoundContract.ts",
+      "byteLength": 82104,
+      "sha256": "80f825ae99dc06ddbb3b4a84764dc978465b989695e87ae94b7dc00e81bce6c1"
+    },
+    {
+      "path": "src/mobileUxFoundation.ts",
+      "byteLength": 2178,
+      "sha256": "3cb964fcb310420ef2a0014105d1cb0fb89b7dbe786132b1a65d6f1450ca18c1"
+    },
+    {
+      "path": "src/offlinePlaybackResolverV1.ts",
+      "byteLength": 5836,
+      "sha256": "f5ce7b25b7acddd601ba7aeae0316f29e84f47f487a25b49b0b863e4347d866b"
+    },
+    {
+      "path": "src/playback/authoritativePositionProjection.ts",
+      "byteLength": 1305,
+      "sha256": "66c000a1ea22849b79f7bec7cee9573ebb4c833fa5585d167283af50affbd750"
+    },
+    {
+      "path": "src/playback/builderAtomicEditCoordinator.ts",
+      "byteLength": 6678,
+      "sha256": "46634455feec7108ce54757107e6266aa25593f8b806f6884109ae80aca29fc6"
+    },
+    {
+      "path": "src/playback/finitePlaybackNumbers.ts",
+      "byteLength": 586,
+      "sha256": "471227692177e57b858c57a3c26dda2481dd6b0a73e230b38da1e18b0c364368"
+    },
+    {
+      "path": "src/playback/operationScopedCleanup.ts",
+      "byteLength": 751,
+      "sha256": "888e1578c56d4a537d29fc6d782d6fa946aa91b47fd199e4ab9e2f0d10bc7440"
+    },
+    {
+      "path": "src/playback/sessionRestartCoordinator.ts",
+      "byteLength": 4605,
+      "sha256": "5fed13b06e7428d5fbc293103440d0186ba3019907ab588ed7cf6d429a1ec4e7"
+    },
+    {
+      "path": "src/playback/singlePlaybackUiProjection.ts",
+      "byteLength": 1540,
+      "sha256": "0bd23f5feb2a056a3cfe0d4a0fd083f855645a3efb178f6a6c199fb1f8297709"
+    },
+    {
+      "path": "src/playback/singlePreviewStartCoordinator.ts",
+      "byteLength": 1072,
+      "sha256": "a8d170b8d67e06682836019d2a7e6b25cdfb13555bcd5216cd69e35bca5be2ae"
+    },
+    {
+      "path": "src/playbackTrace.ts",
+      "byteLength": 1850,
+      "sha256": "4580699c830cfd07a0bfefbc9603be9877511e5d5bc1157724a0252d180d88fe"
+    },
+    {
+      "path": "src/quickFeedback.ts",
+      "byteLength": 3698,
+      "sha256": "9af4c689413d40a3325468c580f0347d34ad2d04e56d08a2cb7eaa6d2d7bdb60"
+    },
+    {
+      "path": "src/recipeDerivation.ts",
+      "byteLength": 7880,
+      "sha256": "c15df758b9e9bb8bf02ddb8d7f05553eea21c50a69c5e278c1605d1408bd5bb7"
+    },
+    {
+      "path": "src/savedSessions.ts",
+      "byteLength": 18470,
+      "sha256": "1948dad158a6b1f5ec2906bec9ac04bb604f1cdc338f5d8d8816d39acd5b17e7"
+    },
+    {
+      "path": "src/services/activationEligibilityV1.ts",
+      "byteLength": 3692,
+      "sha256": "2e7d783e23557d611b3e24e2462e92140b983b09e4d9f60062fbdf9c0717b1ce"
+    },
+    {
+      "path": "src/services/appPersistence.ts",
+      "byteLength": 1609,
+      "sha256": "e4f3e848e76211739585e0c09e958fd4b44151eadf2126295f280f862d05c2e8"
+    },
+    {
+      "path": "src/services/audioService.ts",
+      "byteLength": 16416,
+      "sha256": "d9addd4ed486b90df067fce4229b3b58eff96fd7126a4adedd9205afd334e7f8"
+    },
+    {
+      "path": "src/services/catalogEvidenceReconciliationV1.ts",
+      "byteLength": 14280,
+      "sha256": "895f6dbe3e32812c81f43e7b37f96e83d6b9ead60233c997fef20a2db518f501"
+    },
+    {
+      "path": "src/services/directedSessionServiceV1.ts",
+      "byteLength": 23047,
+      "sha256": "49699e175c70d790e6ded3f1d88b287189b71654359a1bf0193e7f8b3528558a"
+    },
+    {
+      "path": "src/services/evidencePersistenceV1.ts",
+      "byteLength": 3729,
+      "sha256": "c451869c5f132bbe53c8bc9a2c4be1ecea86bc105e86ac8295d507bf4e7e563b"
+    },
+    {
+      "path": "src/services/ingestionManifestV1.ts",
+      "byteLength": 10904,
+      "sha256": "06e1d2356f5f0455e3bc160bb1ef1c5d453aa7cc00286f4db32430a2940af729"
+    },
+    {
+      "path": "src/services/offlineDownloadManagerV1.ts",
+      "byteLength": 21996,
+      "sha256": "7ff8f690e218524efa2f918b6d3973ae9b87c14bc58555bf05fcece99dc09f19"
+    },
+    {
+      "path": "src/services/offlineFileStoreV1.ts",
+      "byteLength": 8076,
+      "sha256": "f4aa6f29db4132ff4ed3bdfbc70ba059332dd7d541512b09a936afe4d209f0f2"
+    },
+    {
+      "path": "src/services/preferenceTransitions.ts",
+      "byteLength": 8561,
+      "sha256": "bfae3d2d23923a4913b1401ca7229b1088a778192da35e0500d40c4b653e91bd"
+    },
+    {
+      "path": "src/sessionReplacement.ts",
+      "byteLength": 1915,
+      "sha256": "4d0a1d6c3e27849d161f44d88644df87e78d2de70fb0a100183eab138327796e"
+    },
+    {
+      "path": "tsconfig.json",
+      "byteLength": 85,
+      "sha256": "712583ff9cdb4b4e4f9b000a4a56d68db8dc1921cbfbc36d490a3a9f2be3dd72"
+    }
+  ]
+}

@@ -1,0 +1,216 @@
+name: Soundscape iOS Internal Ad Hoc
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: soundscape-ios-internal-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ios-internal:
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      CI: "1"
+      EXPO_NO_TELEMETRY: "1"
+      SOUNDSCAPE_BUILD_CHANNEL: preview
+      SOUNDSCAPE_BUILD_SYSTEM: github-public-macos
+      SOUNDSCAPE_REQUIRE_BOUND_COMMIT: "1"
+      COCOAPODS_VERSION: "1.16.2"
+
+    steps:
+      - name: Check out the sanitized snapshot
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Select locked Node toolchain
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22.14.0"
+          cache: npm
+
+      - name: Verify manifest and complete source, generate native workspace, and lock Pods
+        run: |
+          set -euo pipefail
+          SOURCE_COMMIT="$(python3 -c 'import json; print(json.load(open("public-build-manifest.json"))["canonicalPrivateCommit"])')"
+          [[ "$SOURCE_COMMIT" =~ ^[a-f0-9]{40}$ ]]
+          export SOUNDSCAPE_SOURCE_COMMIT="$SOURCE_COMMIT"
+          node scripts/prepare-public-build-v1.mjs
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          SOUNDSCAPE_SOURCE_COMMIT="$SOURCE_COMMIT" npx --no-install expo config --type public --json > "$RUNNER_TEMP/expo-public-config.json"
+          python3 - "$RUNNER_TEMP/expo-public-config.json" "$SOURCE_COMMIT" <<'PY'
+          import json,sys
+          c=json.load(open(sys.argv[1])); expected=sys.argv[2]
+          assert c['android']['package']=='com.wellmadesystems.soundscape'
+          assert c['android']['versionCode']==15
+          assert c['ios']['bundleIdentifier']=='com.wellmadesystems.soundscape'
+          assert c['ios']['buildNumber']=='12'
+          assert c['runtimeVersion']['policy']=='fingerprint'
+          b=c['extra']['soundscapeBuild']
+          assert b['sourceCommit']==expected and b['channel']=='preview' and b['distribution']=='internal'
+          assert b['release']['internalLabel']=='Alpha 0.14.2+independent-build-pipeline-proof-v1'
+          PY
+          npx --no-install expo prebuild --platform ios --clean --no-install
+          sudo gem install cocoapods -v "$COCOAPODS_VERSION" --no-document
+          POD_COMMAND=(pod "_${COCOAPODS_VERSION}_")
+          POD_ACTUAL_VERSION="$("${POD_COMMAND[@]}" --version)"
+          test "$POD_ACTUAL_VERSION" = "$COCOAPODS_VERSION"
+          cd ios
+          "${POD_COMMAND[@]}" install
+          test -s Podfile.lock
+          PODFILE_LOCK_SHA256="$(shasum -a 256 Podfile.lock | cut -d ' ' -f1)"
+          test "${#PODFILE_LOCK_SHA256}" -eq 64
+          cp Podfile.lock "$RUNNER_TEMP/Podfile.lock.generated"
+          # A second pinned pod install --deployment must neither resolve nor alter dependencies.
+          "${POD_COMMAND[@]}" install --deployment
+          cmp Podfile.lock "$RUNNER_TEMP/Podfile.lock.generated"
+          test "$(shasum -a 256 Podfile.lock | cut -d ' ' -f1)" = "$PODFILE_LOCK_SHA256"
+          printf 'SOUNDSCAPE_COCOAPODS_ACTUAL_VERSION=%s\n' "$POD_ACTUAL_VERSION" >> "$GITHUB_ENV"
+          printf 'SOUNDSCAPE_PODFILE_LOCK_SHA256=%s\n' "$PODFILE_LOCK_SHA256" >> "$GITHUB_ENV"
+
+      - name: Sign, archive, export, and verify IPA
+        env:
+          SOUNDSCAPE_IOS_DISTRIBUTION_P12_BASE64: ${{ secrets.SOUNDSCAPE_IOS_DISTRIBUTION_P12_BASE64 }}
+          SOUNDSCAPE_IOS_DISTRIBUTION_P12_PASSWORD: ${{ secrets.SOUNDSCAPE_IOS_DISTRIBUTION_P12_PASSWORD }}
+          SOUNDSCAPE_IOS_ADHOC_PROFILE_BASE64: ${{ secrets.SOUNDSCAPE_IOS_ADHOC_PROFILE_BASE64 }}
+          EXPECTED_TEAM_ID: 7D88UFWRTZ
+          EXPECTED_PROFILE_UUID: 26348403-13b8-41a6-ae27-f25c6287cb5c
+          EXPECTED_PROFILE_NAME: "*[expo] com.wellmadesystems.soundscape AdHoc 1783986418009"
+          EXPECTED_CERTIFICATE_SHA256: 3870fd7a823c074b79fdf2862c3a57b5432bcce43b963e759f81ea3789e1a107
+          EXPECTED_PROFILE_SHA256: d6ac738127c9694b21b90669c02ef3738cf69e416c1acd0ac2e0bc82384466a1
+        run: |
+          set -euo pipefail
+          SOURCE_COMMIT="$(python3 -c 'import json; print(json.load(open("public-build-manifest.json"))["canonicalPrivateCommit"])')"
+          export SOUNDSCAPE_SOURCE_COMMIT="$SOURCE_COMMIT"
+          KEYCHAIN_PATH="$RUNNER_TEMP/soundscape-build-v1.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          P12_FILE="$RUNNER_TEMP/soundscape-distribution.p12"
+          PROFILE_FILE="$RUNNER_TEMP/soundscape-adhoc.mobileprovision"
+          PROFILE_PLIST="$RUNNER_TEMP/soundscape-profile.plist"
+          INSTALLED_PROFILE="$HOME/Library/MobileDevice/Provisioning Profiles/$EXPECTED_PROFILE_UUID.mobileprovision"
+          ARCHIVE_PATH="$RUNNER_TEMP/Soundscape.xcarchive"
+          EXPORT_PATH="$RUNNER_TEMP/ipa-export"
+          ARTIFACT_PATH="$RUNNER_TEMP/artifacts"
+          PAYLOAD_PATH="$RUNNER_TEMP/ipa-payload"
+
+          cleanup() {
+            rm -f "$P12_FILE" "$PROFILE_FILE" "$PROFILE_PLIST" "$INSTALLED_PROFILE"
+            security delete-keychain "$KEYCHAIN_PATH" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          test -n "$SOUNDSCAPE_IOS_DISTRIBUTION_P12_BASE64"
+          test -n "$SOUNDSCAPE_IOS_DISTRIBUTION_P12_PASSWORD"
+          test -n "$SOUNDSCAPE_IOS_ADHOC_PROFILE_BASE64"
+          python3 - "$P12_FILE" "$PROFILE_FILE" <<'PY'
+          import base64,os,sys
+          open(sys.argv[1],'wb').write(base64.b64decode(os.environ['SOUNDSCAPE_IOS_DISTRIBUTION_P12_BASE64'], validate=True))
+          open(sys.argv[2],'wb').write(base64.b64decode(os.environ['SOUNDSCAPE_IOS_ADHOC_PROFILE_BASE64'], validate=True))
+          PY
+          chmod 600 "$P12_FILE" "$PROFILE_FILE"
+          test "$(shasum -a 256 "$PROFILE_FILE" | cut -d ' ' -f1)" = "$EXPECTED_PROFILE_SHA256"
+          security cms -D -i "$PROFILE_FILE" > "$PROFILE_PLIST"
+          python3 - "$PROFILE_PLIST" "$EXPECTED_TEAM_ID" "$EXPECTED_PROFILE_UUID" "$EXPECTED_PROFILE_NAME" <<'PY'
+          import plistlib,sys
+          p=plistlib.load(open(sys.argv[1],'rb')); team,uuid,name=sys.argv[2:]
+          assert p['UUID']==uuid and p['Name']==name
+          assert p['TeamIdentifier']==[team]
+          assert p['Entitlements']['application-identifier']==team+'.com.wellmadesystems.soundscape'
+          assert len(p.get('ProvisionedDevices',[]))==1
+          assert p.get('ProvisionsAllDevices') is not True
+          PY
+
+          mkdir -p "$(dirname "$INSTALLED_PROFILE")" "$ARTIFACT_PATH" "$EXPORT_PATH"
+          cp "$PROFILE_FILE" "$INSTALLED_PROFILE"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 7200 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$P12_FILE" -k "$KEYCHAIN_PATH" -P "$SOUNDSCAPE_IOS_DISTRIBUTION_P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security >/dev/null
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+          CERT_SHA1="$(openssl pkcs12 -in "$P12_FILE" -clcerts -nokeys -passin env:SOUNDSCAPE_IOS_DISTRIBUTION_P12_PASSWORD 2>/dev/null | openssl x509 -outform DER | shasum -a 1 | cut -d ' ' -f1)"
+          CERT_SHA256="$(openssl pkcs12 -in "$P12_FILE" -clcerts -nokeys -passin env:SOUNDSCAPE_IOS_DISTRIBUTION_P12_PASSWORD 2>/dev/null | openssl x509 -outform DER | shasum -a 256 | cut -d ' ' -f1)"
+          test "${#CERT_SHA1}" -eq 40
+          test "$CERT_SHA256" = "$EXPECTED_CERTIFICATE_SHA256"
+          unset SOUNDSCAPE_IOS_DISTRIBUTION_P12_BASE64 SOUNDSCAPE_IOS_DISTRIBUTION_P12_PASSWORD SOUNDSCAPE_IOS_ADHOC_PROFILE_BASE64
+
+          /usr/libexec/PlistBuddy -c "Print :SoundscapeSourceCommit" ios/Soundscape/Info.plist | grep -Fx "$SOURCE_COMMIT" >/dev/null
+          /usr/libexec/PlistBuddy -c "Print :SoundscapeBuildChannel" ios/Soundscape/Info.plist | grep -Fx preview >/dev/null
+          /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" ios/Soundscape/Info.plist | grep -Fx 12 >/dev/null
+
+          xcodebuild \
+            -workspace ios/Soundscape.xcworkspace \
+            -scheme Soundscape \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$ARCHIVE_PATH" \
+            DEVELOPMENT_TEAM="$EXPECTED_TEAM_ID" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="$CERT_SHA1" \
+            PROVISIONING_PROFILE_SPECIFIER="$EXPECTED_PROFILE_NAME" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
+            clean archive
+
+          python3 - "$RUNNER_TEMP/ExportOptions.plist" "$EXPECTED_TEAM_ID" "$EXPECTED_PROFILE_NAME" <<'PY'
+          import plistlib,sys
+          out,team,profile=sys.argv[1:]
+          data={'method':'ad-hoc','destination':'export','signingStyle':'manual','teamID':team,'manageAppVersionAndBuildNumber':False,'stripSwiftSymbols':True,'thinning':'<none>','provisioningProfiles':{'com.wellmadesystems.soundscape':profile}}
+          plistlib.dump(data,open(out,'wb'),sort_keys=True)
+          PY
+          xcodebuild -exportArchive -archivePath "$ARCHIVE_PATH" -exportPath "$EXPORT_PATH" -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
+          IPA_SOURCE="$(find "$EXPORT_PATH" -maxdepth 1 -type f -name '*.ipa' -print -quit)"
+          test -n "$IPA_SOURCE" && test -s "$IPA_SOURCE"
+          IPA_NAME="Soundscape-Alpha-0.14.2-iOS-AdHoc-bn12-${SOURCE_COMMIT:0:12}.ipa"
+          IPA_FINAL="$ARTIFACT_PATH/$IPA_NAME"
+          cp "$IPA_SOURCE" "$IPA_FINAL"
+          unzip -t "$IPA_FINAL" >/dev/null
+          rm -rf "$PAYLOAD_PATH"
+          mkdir -p "$PAYLOAD_PATH"
+          unzip -q "$IPA_FINAL" -d "$PAYLOAD_PATH"
+          APP_PATH="$(find "$PAYLOAD_PATH/Payload" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$APP_PATH"
+          test -s "$APP_PATH/_CodeSignature/CodeResources"
+          test -s "$APP_PATH/embedded.mobileprovision"
+          cmp "$APP_PATH/embedded.mobileprovision" "$PROFILE_FILE"
+          codesign --verify --deep --strict "$APP_PATH"
+          test "$(plutil -extract CFBundleIdentifier raw "$APP_PATH/Info.plist")" = 'com.wellmadesystems.soundscape'
+          test "$(plutil -extract CFBundleVersion raw "$APP_PATH/Info.plist")" = '12'
+          test "$(plutil -extract SoundscapeSourceCommit raw "$APP_PATH/Info.plist")" = "$SOURCE_COMMIT"
+          test "$(plutil -extract SoundscapeBuildChannel raw "$APP_PATH/Info.plist")" = 'preview'
+          lipo -info "$APP_PATH/Soundscape" | grep -q 'arm64'
+          FINGERPRINT_FILE="$(find "$APP_PATH" -type f -path '*EXUpdates.bundle/fingerprint' -print -quit)"
+          test -n "$FINGERPRINT_FILE" && test -s "$FINGERPRINT_FILE"
+          security cms -D -i "$APP_PATH/embedded.mobileprovision" > "$RUNNER_TEMP/embedded-profile.plist"
+          python3 - "$RUNNER_TEMP/embedded-profile.plist" "$EXPECTED_TEAM_ID" "$EXPECTED_PROFILE_UUID" <<'PY'
+          import plistlib,sys
+          p=plistlib.load(open(sys.argv[1],'rb')); team,uuid=sys.argv[2:]
+          assert p['UUID']==uuid
+          assert p['Entitlements']['application-identifier']==team+'.com.wellmadesystems.soundscape'
+          assert len(p.get('ProvisionedDevices',[]))==1
+          PY
+          codesign -dvv "$APP_PATH" 2> "$RUNNER_TEMP/codesign-details.txt"
+          cp "$RUNNER_TEMP/Podfile.lock.generated" "$ARTIFACT_PATH/Podfile.lock"
+          python3 - "$IPA_FINAL" "$FINGERPRINT_FILE" "$SOURCE_COMMIT" "$ARTIFACT_PATH/verification.json" "$RUNNER_TEMP/codesign-details.txt" <<'PY'
+          import hashlib,json,os,re,sys
+          ipa,fingerprint,commit,out,details=sys.argv[1:]
+          raw=open(ipa,'rb').read(); fp=open(fingerprint,'rb').read(); signing=open(details,errors='replace').read()
+          authority=re.findall(r'^Authority=(.+)$',signing,re.M)
+          team=re.search(r'^TeamIdentifier=(.+)$',signing,re.M)
+          result={'schema':'soundscape-build-independence-v1-ios-verification-v1','status':'GREEN','canonicalPrivateCommit':commit,'bundleIdentifier':'com.wellmadesystems.soundscape','buildNumber':'12','visibleIdentity':'Alpha 0.14.2 — Independent Build Pipeline Proof','channel':'preview','distribution':'internal','runtimePolicy':'fingerprint','runtimeFingerprintSha256':hashlib.sha256(fp).hexdigest(),'ipaFile':os.path.basename(ipa),'ipaBytes':len(raw),'ipaSha256':hashlib.sha256(raw).hexdigest(),'signingAuthorities':authority,'certificateSha256':os.environ['EXPECTED_CERTIFICATE_SHA256'],'teamIdentifier':team.group(1) if team else None,'profileUuid':os.environ['EXPECTED_PROFILE_UUID'],'profileSha256':os.environ['EXPECTED_PROFILE_SHA256'],'provisionedDeviceCount':1,'cocoaPodsVersion':os.environ['SOUNDSCAPE_COCOAPODS_ACTUAL_VERSION'],'podfileLockSha256':os.environ['SOUNDSCAPE_PODFILE_LOCK_SHA256'],'runner':{'name':os.environ.get('RUNNER_NAME'),'os':os.environ.get('RUNNER_OS'),'arch':os.environ.get('RUNNER_ARCH'),'imageOS':os.environ.get('ImageOS'),'imageVersion':os.environ.get('ImageVersion')},'github':{'repository':os.environ['GITHUB_REPOSITORY'],'runId':os.environ['GITHUB_RUN_ID'],'runAttempt':os.environ['GITHUB_RUN_ATTEMPT']},'easBuildCommands':0,'storeTransactions':0}
+          assert result['teamIdentifier']==os.environ['EXPECTED_TEAM_ID']
+          open(out,'w').write(json.dumps(result,indent=2,sort_keys=True)+'\n')
+          print(json.dumps({'status':'GREEN','ipa':result['ipaFile'],'bytes':result['ipaBytes'],'sha256':result['ipaSha256'],'sourceCommit':commit,'runner':result['runner']},sort_keys=True))
+          PY
+
+      - name: Upload one-day proof artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: soundscape-alpha-0.14.2-ios-adhoc
+          path: ${{ runner.temp }}/artifacts/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0

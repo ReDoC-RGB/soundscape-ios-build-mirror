@@ -1,0 +1,53 @@
+{
+  "expo": {
+    "name": "Soundscape",
+    "slug": "soundscape-mobile",
+    "scheme": "soundscape",
+    "version": "0.12.1",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F5F0E8"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.wellmadesystems.soundscape",
+      "buildNumber": "12",
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "audio"
+        ]
+      }
+    },
+    "android": {
+      "package": "com.wellmadesystems.soundscape",
+      "versionCode": 15,
+      "permissions": [
+        "android.permission.POST_NOTIFICATIONS"
+      ],
+      "adaptiveIcon": {
+        "backgroundColor": "#2E2418",
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/231a55ee-5482-4142-8c1d-dbdfd2eda501"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "231a55ee-5482-4142-8c1d-dbdfd2eda501"
+      }
+    }
+  }
+}
