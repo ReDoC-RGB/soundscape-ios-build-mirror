@@ -46,13 +46,13 @@ jobs:
           import json,sys
           c=json.load(open(sys.argv[1])); expected=sys.argv[2]
           assert c['android']['package']=='com.wellmadesystems.soundscape'
-          assert c['android']['versionCode']==16
+          assert c['android']['versionCode']==17
           assert c['ios']['bundleIdentifier']=='com.wellmadesystems.soundscape'
-          assert c['ios']['buildNumber']=='13'
+          assert c['ios']['buildNumber']=='14'
           assert c['runtimeVersion']['policy']=='fingerprint'
           b=c['extra']['soundscapeBuild']
           assert b['sourceCommit']==expected and b['channel']=='preview' and b['distribution']=='internal'
-          assert b['release']['internalLabel']=='Alpha 0.14.3+directed-sessions-physical-review-fix-v1'
+          assert b['release']['internalLabel']=='Alpha 0.14.4+directed-sessions-native-activation-saved-routes-fix-v1'
           PY
           npx --no-install expo prebuild --platform ios --clean --no-install
           sudo gem install cocoapods -v "$COCOAPODS_VERSION" --no-document
@@ -140,7 +140,7 @@ jobs:
 
           /usr/libexec/PlistBuddy -c "Print :SoundscapeSourceCommit" ios/Soundscape/Info.plist | grep -Fx "$SOURCE_COMMIT" >/dev/null
           /usr/libexec/PlistBuddy -c "Print :SoundscapeBuildChannel" ios/Soundscape/Info.plist | grep -Fx preview >/dev/null
-          /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" ios/Soundscape/Info.plist | grep -Fx 13 >/dev/null
+          /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" ios/Soundscape/Info.plist | grep -Fx 14 >/dev/null
 
           xcodebuild \
             -workspace ios/Soundscape.xcworkspace \
@@ -164,7 +164,7 @@ jobs:
           xcodebuild -exportArchive -archivePath "$ARCHIVE_PATH" -exportPath "$EXPORT_PATH" -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
           IPA_SOURCE="$(find "$EXPORT_PATH" -maxdepth 1 -type f -name '*.ipa' -print -quit)"
           test -n "$IPA_SOURCE" && test -s "$IPA_SOURCE"
-          IPA_NAME="Soundscape-Alpha-0.14.3-iOS-AdHoc-bn13-${SOURCE_COMMIT:0:12}.ipa"
+          IPA_NAME="Soundscape-Alpha-0.14.4-iOS-AdHoc-bn14-${SOURCE_COMMIT:0:12}.ipa"
           IPA_FINAL="$ARTIFACT_PATH/$IPA_NAME"
           cp "$IPA_SOURCE" "$IPA_FINAL"
           unzip -t "$IPA_FINAL" >/dev/null
@@ -178,7 +178,7 @@ jobs:
           cmp "$APP_PATH/embedded.mobileprovision" "$PROFILE_FILE"
           codesign --verify --deep --strict "$APP_PATH"
           test "$(plutil -extract CFBundleIdentifier raw "$APP_PATH/Info.plist")" = 'com.wellmadesystems.soundscape'
-          test "$(plutil -extract CFBundleVersion raw "$APP_PATH/Info.plist")" = '13'
+          test "$(plutil -extract CFBundleVersion raw "$APP_PATH/Info.plist")" = '14'
           test "$(plutil -extract SoundscapeSourceCommit raw "$APP_PATH/Info.plist")" = "$SOURCE_COMMIT"
           test "$(plutil -extract SoundscapeBuildChannel raw "$APP_PATH/Info.plist")" = 'preview'
           lipo -info "$APP_PATH/Soundscape" | grep -q 'arm64'
@@ -200,7 +200,7 @@ jobs:
           raw=open(ipa,'rb').read(); fp=open(fingerprint,'rb').read(); signing=open(details,errors='replace').read()
           authority=re.findall(r'^Authority=(.+)$',signing,re.M)
           team=re.search(r'^TeamIdentifier=(.+)$',signing,re.M)
-          result={'schema':'soundscape-build-independence-v1-ios-verification-v1','status':'GREEN','canonicalPrivateCommit':commit,'bundleIdentifier':'com.wellmadesystems.soundscape','buildNumber':'13','visibleIdentity':'Alpha 0.14.3 — Directed Sessions Physical Review Fix','channel':'preview','distribution':'internal','runtimePolicy':'fingerprint','runtimeFingerprintSha256':hashlib.sha256(fp).hexdigest(),'ipaFile':os.path.basename(ipa),'ipaBytes':len(raw),'ipaSha256':hashlib.sha256(raw).hexdigest(),'signingAuthorities':authority,'certificateSha256':os.environ['EXPECTED_CERTIFICATE_SHA256'],'teamIdentifier':team.group(1) if team else None,'profileUuid':os.environ['EXPECTED_PROFILE_UUID'],'profileSha256':os.environ['EXPECTED_PROFILE_SHA256'],'provisionedDeviceCount':1,'cocoaPodsVersion':os.environ['SOUNDSCAPE_COCOAPODS_ACTUAL_VERSION'],'podfileLockSha256':os.environ['SOUNDSCAPE_PODFILE_LOCK_SHA256'],'runner':{'name':os.environ.get('RUNNER_NAME'),'os':os.environ.get('RUNNER_OS'),'arch':os.environ.get('RUNNER_ARCH'),'imageOS':os.environ.get('ImageOS'),'imageVersion':os.environ.get('ImageVersion')},'github':{'repository':os.environ['GITHUB_REPOSITORY'],'runId':os.environ['GITHUB_RUN_ID'],'runAttempt':os.environ['GITHUB_RUN_ATTEMPT']},'easBuildCommands':0,'storeTransactions':0}
+          result={'schema':'soundscape-build-independence-v1-ios-verification-v1','status':'GREEN','canonicalPrivateCommit':commit,'bundleIdentifier':'com.wellmadesystems.soundscape','buildNumber':'14','visibleIdentity':'Alpha 0.14.4 — Directed Sessions Native Activation and Saved Routes Fix','channel':'preview','distribution':'internal','runtimePolicy':'fingerprint','runtimeFingerprintSha256':hashlib.sha256(fp).hexdigest(),'ipaFile':os.path.basename(ipa),'ipaBytes':len(raw),'ipaSha256':hashlib.sha256(raw).hexdigest(),'signingAuthorities':authority,'certificateSha256':os.environ['EXPECTED_CERTIFICATE_SHA256'],'teamIdentifier':team.group(1) if team else None,'profileUuid':os.environ['EXPECTED_PROFILE_UUID'],'profileSha256':os.environ['EXPECTED_PROFILE_SHA256'],'provisionedDeviceCount':1,'cocoaPodsVersion':os.environ['SOUNDSCAPE_COCOAPODS_ACTUAL_VERSION'],'podfileLockSha256':os.environ['SOUNDSCAPE_PODFILE_LOCK_SHA256'],'runner':{'name':os.environ.get('RUNNER_NAME'),'os':os.environ.get('RUNNER_OS'),'arch':os.environ.get('RUNNER_ARCH'),'imageOS':os.environ.get('ImageOS'),'imageVersion':os.environ.get('ImageVersion')},'github':{'repository':os.environ['GITHUB_REPOSITORY'],'runId':os.environ['GITHUB_RUN_ID'],'runAttempt':os.environ['GITHUB_RUN_ATTEMPT']},'easBuildCommands':0,'storeTransactions':0}
           assert result['teamIdentifier']==os.environ['EXPECTED_TEAM_ID']
           open(out,'w').write(json.dumps(result,indent=2,sort_keys=True)+'\n')
           print(json.dumps({'status':'GREEN','ipa':result['ipaFile'],'bytes':result['ipaBytes'],'sha256':result['ipaSha256'],'sourceCommit':commit,'runner':result['runner']},sort_keys=True))
@@ -209,7 +209,7 @@ jobs:
       - name: Upload one-day proof artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: soundscape-alpha-0.14.3-ios-adhoc
+          name: soundscape-alpha-0.14.4-ios-adhoc
           path: ${{ runner.temp }}/artifacts/
           if-no-files-found: error
           retention-days: 1

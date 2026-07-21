@@ -1,15 +1,15 @@
 {
-  "canonicalPrivateCommit": "863ca2fd27ee9e16ade7e5f6d2bb795077bce3e1",
+  "canonicalPrivateCommit": "bb5a584d57a8ccba0fe673606f7f1aab4c063a7e",
   "exportedPaths": [
     {
       "path": ".github/workflows/ios-internal.yml",
-      "byteLength": 13989,
-      "sha256": "061599d9b31ae5dfd5580c40347ab0c67e8dc3f3592967a50eeea3c89c6ce579"
+      "byteLength": 14023,
+      "sha256": "3617f7cc289cdfa40564f5b99b588e37799046b161b6660babb911a23e9803fb"
     },
     {
       "path": "App.tsx",
-      "byteLength": 547694,
-      "sha256": "f93f9f2f0a0d2b2a7378e2cda8a7a3f321fa461fb17fc40e5c5d6685bb8c3d50"
+      "byteLength": 553875,
+      "sha256": "fb1bdb651f72e3c332506a067755cb50717ae53ee299b3a3a6bebb463378c5e2"
     },
     {
       "path": "README.md",
@@ -18,13 +18,13 @@
     },
     {
       "path": "app.config.js",
-      "byteLength": 1871,
-      "sha256": "894e18c56a7cd0b1cfc02e97a43f6165ef799f179c22be894346492d9dccbbb9"
+      "byteLength": 1920,
+      "sha256": "3e2230e4defabe8bc37cd9c49970707705ddf8528aa0860cfacdbe628cd58255"
     },
     {
       "path": "app.json",
       "byteLength": 1321,
-      "sha256": "a338c5e4aa207266cbb2159374c1023921b402c14b6e91ef346af606429bc6cb"
+      "sha256": "53a39c9668633a247d116afa4e613b01ae2ed5f3d71363dffa302fc880862653"
     },
     {
       "path": "assets/icon.png",
@@ -248,8 +248,8 @@
     },
     {
       "path": "src/directedSessions/DirectedSessionsExperienceV1.tsx",
-      "byteLength": 57811,
-      "sha256": "1af649a4798b43b871fc175cdb7a86518a1e79560dd37f027f2d6b4016c37542"
+      "byteLength": 58440,
+      "sha256": "414c82ee756e1f5c5808745dd6463729db151f322d41c385e61c58782de6f254"
     },
     {
       "path": "src/directedSessions/eligibilityV1.ts",
@@ -315,6 +315,11 @@
       "path": "src/mobileUxFoundation.ts",
       "byteLength": 2178,
       "sha256": "3cb964fcb310420ef2a0014105d1cb0fb89b7dbe786132b1a65d6f1450ca18c1"
+    },
+    {
+      "path": "src/navigation/savedDestinationIntentV1.ts",
+      "byteLength": 1156,
+      "sha256": "47843036a05218b68f4df7a854fb64115e41da34584650f49ba851574d61fa77"
     },
     {
       "path": "src/offlinePlaybackResolverV1.ts",
@@ -398,8 +403,8 @@
     },
     {
       "path": "src/services/directedSessionServiceV1.ts",
-      "byteLength": 29853,
-      "sha256": "5f4e3a81bc1e721e235f20cd6d2aa2468b266286809f5b97a8ada3c7616412e7"
+      "byteLength": 34955,
+      "sha256": "f79506743be1bb8d886af0fa5fdd82f9ffa187c7ddc61c64ca1757e00b1e5768"
     },
     {
       "path": "src/services/evidencePersistenceV1.ts",

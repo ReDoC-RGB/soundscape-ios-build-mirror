@@ -50,6 +50,51 @@ import {
 export const DIRECTED_SESSION_SCHEDULER_VERSION_V1 = 1 as const;
 const DIRECTED_OFFLINE_QUOTA_BYTES = 250 * 1024 * 1024;
 const DIRECTED_OFFLINE_RESERVE_BYTES = 25 * 1024 * 1024;
+const DIRECTED_INACTIVE_CUSTOMER_COPY = "We couldn’t prepare this session. Directed playback is not active.";
+
+export type DirectedActivationStageV1 =
+  | "capability-check"
+  | "asset-resolution"
+  | "directed-owner-query"
+  | "aggregate-owner-query"
+  | "native-create-dispatch"
+  | "native-create-acknowledgement"
+  | "native-play-dispatch"
+  | "native-play-acknowledgement"
+  | "native-owner-confirmation";
+
+export type DirectedActivationDiagnosticV1 = Readonly<{
+  stage: DirectedActivationStageV1;
+  code: string;
+}>;
+
+class DirectedActivationErrorV1 extends Error {
+  constructor(readonly diagnostic: DirectedActivationDiagnosticV1, cause?: unknown) {
+    super(`${diagnostic.stage}:${diagnostic.code}`);
+    this.name = "DirectedActivationErrorV1";
+    (this as Error & { cause?: unknown }).cause = cause;
+  }
+}
+
+const boundedDiagnosticCodeV1 = (value: string): string => {
+  const normalized = value.toUpperCase().replace(/[^A-Z0-9_]/g, "_").replace(/_+/g, "_").slice(0, 64);
+  return normalized || "DIRECTED_ACTIVATION_FAILED";
+};
+
+const nativeActivationDiagnosticV1 = (error: unknown, fallbackStage: DirectedActivationStageV1): DirectedActivationDiagnosticV1 => {
+  const message = error instanceof Error ? error.message : String(error);
+  const native = message.match(/DIRECTED_ACTIVATION_FAILED\|([^|]+)\|([A-Z0-9_]+)/);
+  const nativeStage = native?.[1];
+  const stage: DirectedActivationStageV1 = nativeStage?.startsWith("native-create")
+    ? "native-create-dispatch"
+    : nativeStage?.startsWith("native-play")
+      ? "native-play-dispatch"
+      : fallbackStage;
+  return Object.freeze({
+    stage,
+    code: boundedDiagnosticCodeV1(native?.[2] ?? message),
+  });
+};
 
 type DirectedStateListenerV1 = (state: NativeDirectedSessionStateV1 | null) => void;
 type DirectedPackageListenerV1 = (sceneId: DirectedSceneIdV1, availability: DirectedAvailabilityProjectionV1) => void;
@@ -165,6 +210,7 @@ export class DirectedSessionServiceV1 {
   private nativeStateAcceptance: Promise<void> = Promise.resolve();
   private nativeStateEpoch = 0;
   private lastPersistedNativeState: NativeDirectedSessionStateV1 | null = null;
+  private activationDiagnostic: DirectedActivationDiagnosticV1 | null = null;
 
   constructor() {
     try {
@@ -198,6 +244,30 @@ export class DirectedSessionServiceV1 {
 
   currentDirectedSession(): NativeDirectedSessionStateV1 | null {
     return this.current;
+  }
+
+  currentActivationDiagnostic(): DirectedActivationDiagnosticV1 | null {
+    return this.activationDiagnostic;
+  }
+
+  private activationError(diagnostic: DirectedActivationDiagnosticV1, cause?: unknown): DirectedActivationErrorV1 {
+    this.activationDiagnostic = Object.freeze({ ...diagnostic });
+    return new DirectedActivationErrorV1(this.activationDiagnostic, cause);
+  }
+
+  private nativeActivationError(error: unknown, fallbackStage: DirectedActivationStageV1): DirectedActivationErrorV1 {
+    return this.activationError(nativeActivationDiagnosticV1(error, fallbackStage), error);
+  }
+
+  private customerActivationError(
+    stage: DirectedActivationStageV1,
+    code: string,
+    customerCopy: string,
+    cause?: unknown,
+  ): Error {
+    const error = new Error(customerCopy) as Error & { cause?: unknown };
+    error.cause = this.activationError(Object.freeze({ stage, code: boundedDiagnosticCodeV1(code) }), cause);
+    return error;
   }
 
   async refreshCapability(): Promise<number> {
@@ -240,7 +310,10 @@ export class DirectedSessionServiceV1 {
   }
 
   async createDirectedSession(input: CreateDirectedSessionInputV1): Promise<NativeDirectedSessionStateV1> {
-    if (await this.refreshCapability() !== DIRECTED_SESSION_SCHEDULER_VERSION_V1) throw new Error("Sessions are unavailable in this build.");
+    this.activationDiagnostic = null;
+    if (await this.refreshCapability() !== DIRECTED_SESSION_SCHEDULER_VERSION_V1) {
+      throw this.customerActivationError("capability-check", "DIRECTED_CAPABILITY_UNAVAILABLE", "Sessions are unavailable in this build.");
+    }
     const score = getDirectedSceneScoreV1(input.sceneId);
     const variant = materializeDirectedSceneVariantV1(score, {
       hardAvoidanceIds: input.hardAvoidanceIds,
@@ -250,14 +323,23 @@ export class DirectedSessionServiceV1 {
     if (variant.blocked) throw new Error(variant.customerCopy);
     const manifestItems = await this.getManifestItems();
     const sources = resolveDirectedAssetSourcesV1({ sceneId: input.sceneId, manifestItems, allowRemote: input.allowRemote });
-    if (!sources.usable) throw new Error("We couldn’t prepare this session. Nothing started.");
-    const previous = await this.queryDirectedSession();
+    if (!sources.usable) {
+      throw this.customerActivationError("asset-resolution", "DIRECTED_ASSETS_UNAVAILABLE", "We couldn’t prepare this session. Nothing started.");
+    }
+    let previous = this.current;
+    try {
+      const queried = await NativeMedia.getDirectedSessionState();
+      if (finiteNativeState(queried)) await this.acceptNativeState(queried);
+      previous = this.current;
+    } catch (error) {
+      throw this.customerActivationError("directed-owner-query", "DIRECTED_OWNER_QUERY_FAILED", DIRECTED_INACTIVE_CUSTOMER_COPY, error);
+    }
     let aggregateGeneration: number | null = null;
     try {
       const aggregate = await NativeMedia.queryState();
       aggregateGeneration = Number.isFinite(aggregate.generationId) ? aggregate.generationId : null;
-    } catch {
-      aggregateGeneration = null;
+    } catch (error) {
+      throw this.customerActivationError("aggregate-owner-query", "AGGREGATE_OWNER_QUERY_FAILED", DIRECTED_INACTIVE_CUSTOMER_COPY, error);
     }
     // Android's existing aggregate owner fences every classic and directed definition
     // with one monotonically increasing generation. Allocate above both authorities;
@@ -312,10 +394,17 @@ export class DirectedSessionServiceV1 {
     let definitionIssued = false;
     try {
       definitionIssued = true;
+      let createdProjection: NativeDirectedSessionStateV1;
+      try {
+        createdProjection = await NativeMedia.createDirectedSession(definition);
+      } catch (error) {
+        throw this.nativeActivationError(error, "native-create-dispatch");
+      }
       const created = await this.acceptAcknowledgedNativeState(
-        await NativeMedia.createDirectedSession(definition),
+        createdProjection,
         definition,
         ["preparing"],
+        { acknowledgement: "native-create-acknowledgement", owner: "native-owner-confirmation" },
       );
       const play: NativeDirectedTransportCommandV1 = {
         sessionId,
@@ -326,13 +415,23 @@ export class DirectedSessionServiceV1 {
         idempotencyKey: `${sessionId}:play:${created.lastAcceptedOperationId + 1}`,
         type: "play",
       };
+      let playingProjection: NativeDirectedSessionStateV1;
+      try {
+        playingProjection = await NativeMedia.dispatchDirectedSession(play);
+      } catch (error) {
+        throw this.nativeActivationError(error, "native-play-dispatch");
+      }
       const playing = await this.acceptAcknowledgedNativeState(
-        await NativeMedia.dispatchDirectedSession(play),
+        playingProjection,
         play,
         ["playing"],
+        { acknowledgement: "native-play-acknowledgement", owner: "native-owner-confirmation" },
       );
       return playing;
     } catch (error) {
+      if (!(error instanceof DirectedActivationErrorV1) && !this.activationDiagnostic) {
+        this.activationError(Object.freeze({ stage: "native-owner-confirmation", code: "DIRECTED_START_NOT_CONFIRMED" }), error);
+      }
       if (definitionIssued) {
         try {
           await this.stopFailedStartOwner(sessionId, generationId);
@@ -343,7 +442,7 @@ export class DirectedSessionServiceV1 {
           throw combined;
         }
       }
-      const reconciled = new Error("We couldn’t prepare this session. Directed playback is not active.") as Error & { cause?: unknown };
+      const reconciled = new Error(DIRECTED_INACTIVE_CUSTOMER_COPY) as Error & { cause?: unknown };
       reconciled.cause = error;
       throw reconciled;
     }
@@ -581,6 +680,7 @@ export class DirectedSessionServiceV1 {
     state: NativeDirectedSessionStateV1 | null,
     command: NativeDirectedCommandFenceV1,
     expectedTransports?: readonly NativeDirectedSessionStateV1["transport"][],
+    activationStages?: Readonly<{ acknowledgement: DirectedActivationStageV1; owner: DirectedActivationStageV1 }>,
   ): Promise<NativeDirectedSessionStateV1> {
     const acknowledgement = state?.lastAcknowledgement;
     if (
@@ -593,15 +693,31 @@ export class DirectedSessionServiceV1 {
       || acknowledgement.operationId !== command.operationId
       || acknowledgement.idempotencyKey !== command.idempotencyKey
       || (expectedTransports && !expectedTransports.includes(state.transport))
-    ) throw new Error("DIRECTED_NATIVE_ACKNOWLEDGEMENT_MISMATCH");
+    ) {
+      if (activationStages) {
+        throw this.activationError(Object.freeze({ stage: activationStages.acknowledgement, code: "DIRECTED_NATIVE_ACKNOWLEDGEMENT_MISMATCH" }));
+      }
+      throw new Error("DIRECTED_NATIVE_ACKNOWLEDGEMENT_MISMATCH");
+    }
     await this.acceptNativeState(state);
-    const aggregate = await NativeMedia.queryState();
+    let aggregate: Awaited<ReturnType<typeof NativeMedia.queryState>>;
+    try {
+      aggregate = await NativeMedia.queryState();
+    } catch (error) {
+      if (activationStages) throw this.nativeActivationError(error, activationStages.owner);
+      throw error;
+    }
     if (
       aggregate.sessionType !== "directed"
       || aggregate.sessionId !== command.sessionId
       || aggregate.generationId !== command.generationId
       || aggregate.operationId !== command.operationId
-    ) throw new Error("DIRECTED_NATIVE_OWNER_MISMATCH");
+    ) {
+      if (activationStages) {
+        throw this.activationError(Object.freeze({ stage: activationStages.owner, code: "DIRECTED_NATIVE_OWNER_MISMATCH" }));
+      }
+      throw new Error("DIRECTED_NATIVE_OWNER_MISMATCH");
+    }
     const current = this.current;
     const currentAcknowledgement = current?.lastAcknowledgement;
     if (
@@ -614,7 +730,12 @@ export class DirectedSessionServiceV1 {
       || currentAcknowledgement.operationId !== command.operationId
       || currentAcknowledgement.idempotencyKey !== command.idempotencyKey
       || (expectedTransports && !expectedTransports.includes(current.transport))
-    ) throw new Error("DIRECTED_NATIVE_CURRENTNESS_MISMATCH");
+    ) {
+      if (activationStages) {
+        throw this.activationError(Object.freeze({ stage: activationStages.acknowledgement, code: "DIRECTED_NATIVE_CURRENTNESS_MISMATCH" }));
+      }
+      throw new Error("DIRECTED_NATIVE_CURRENTNESS_MISMATCH");
+    }
     return current;
   }
 

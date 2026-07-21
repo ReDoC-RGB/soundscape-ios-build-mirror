@@ -7,6 +7,7 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   AppState,
+  findNodeHandle,
   FlatList,
 
   Keyboard,
@@ -56,6 +57,11 @@ import {
   DIRECTED_SESSIONS_RELEASE_CONFIG_V1,
   evaluateDirectedSessionsBetaV1,
 } from "./src/directedSessions/releaseGateV1";
+import {
+  createSavedDestinationIntentV1,
+  shouldApplySavedDestinationIntentV1,
+  type SavedDestinationIntentV1,
+} from "./src/navigation/savedDestinationIntentV1";
 
 const mobileCatalogSounds: MobileCatalogSound[] = [
   ...baselineMobileCatalogSounds,
@@ -349,11 +355,11 @@ const playbackTraceDisplayRefreshMillis = 250;
 const playbackTraceEventLoopGapThresholdMillis = 250;
 const sessionReplacementFadeMillis = 120;
 const appIterationInfo = {
-  label: "Alpha 0.14.3",
-  displayLabel: "Alpha 0.14.3 — Directed Sessions Physical Review Fix",
-  currentUpdate: "Alpha 0.14.3 — Directed Sessions Physical Review Fix",
-  codename: "directed-sessions-physical-review-fix-v1",
-  fullInternalLabel: "Alpha 0.14.3+directed-sessions-physical-review-fix-v1",
+  label: "Alpha 0.14.4",
+  displayLabel: "Alpha 0.14.4 — Directed Sessions Native Activation and Saved Routes Fix",
+  currentUpdate: "Alpha 0.14.4 — Directed Sessions Native Activation and Saved Routes Fix",
+  codename: "directed-sessions-native-activation-saved-routes-fix-v1",
+  fullInternalLabel: "Alpha 0.14.4+directed-sessions-native-activation-saved-routes-fix-v1",
   acceptedNativeBaseline: {
     label: "Alpha 0.11.7",
     displayLabel: "Alpha 0.11.7 — Single Preview Selection-Ready Fix",
@@ -1120,9 +1126,19 @@ type SoundscapeAppProps = Readonly<{
   initialSettingsOpen?: boolean;
   directedModeBack?: () => void;
   directedModeBackLabel?: string;
+  savedDestinationIntent?: SavedDestinationIntentV1 | null;
+  onSavedDestinationConsumed?: (requestId: number) => void;
 }>;
 
-function SoundscapeApp({ initialSectionKey = "fast-start", initialSavedAreaTab = "sessions", initialSettingsOpen = false, directedModeBack, directedModeBackLabel = "Back to Sessions" }: SoundscapeAppProps = {}) {
+function SoundscapeApp({
+  initialSectionKey = "fast-start",
+  initialSavedAreaTab = "sessions",
+  initialSettingsOpen = false,
+  directedModeBack,
+  directedModeBackLabel = "Back to Sessions",
+  savedDestinationIntent = null,
+  onSavedDestinationConsumed,
+}: SoundscapeAppProps = {}) {
   const { fontScale, width: screenWidth } = useWindowDimensions();
   const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
   useEffect(() => {
@@ -1167,6 +1183,11 @@ function SoundscapeApp({ initialSectionKey = "fast-start", initialSavedAreaTab =
   const retainedLayeredRestartBlueprintRef = useRef<RetainedLayeredRestartBlueprint | null>(null);
   const playbackStatusCallbackGenerationRef = useRef(0);
   const scrollViewRef = useRef<FlatList<BrowseListItem> | null>(null);
+  const savedDestinationRevisionRef = useRef(savedDestinationIntent?.requestId ?? 0);
+  const consumedSavedDestinationRequestRef = useRef<number | null>(null);
+  const savedDestinationLayoutYRef = useRef<Record<SavedAreaTab, number | null>>({ sessions: null, sounds: null });
+  const savedMixesDestinationRef = useRef<View | null>(null);
+  const savedSoundsDestinationRef = useRef<View | null>(null);
   const isScrubbingRef = useRef(false);
   const scrubWasPlayingRef = useRef(false);
   const scrubPositionMillisRef = useRef(0);
@@ -1357,6 +1378,7 @@ function SoundscapeApp({ initialSectionKey = "fast-start", initialSavedAreaTab =
   const [savedSessions, setSavedSessions] = useState<SavedSession[]>([]);
   const [savedSessionsStorageReady, setSavedSessionsStorageReady] = useState(false);
   const [savedAreaTab, setSavedAreaTab] = useState<SavedAreaTab>(initialSavedAreaTab);
+  const [savedDestinationLayoutRevision, setSavedDestinationLayoutRevision] = useState(0);
   const [savedSessionSortMode, setSavedSessionSortMode] = useState<SavedSessionSortMode>("Recently used");
   const [savedSessionDialog, setSavedSessionDialog] = useState<SavedSessionDialogState | null>(null);
   const [savedSessionNameInput, setSavedSessionNameInput] = useState("");
@@ -4928,7 +4950,68 @@ function SoundscapeApp({ initialSectionKey = "fast-start", initialSavedAreaTab =
     setActiveSectionKey(sectionKey);
   };
 
+  const invalidateSavedDestinationIntent = useCallback(() => {
+    const requestId = savedDestinationIntent?.requestId;
+    savedDestinationRevisionRef.current += 1;
+    if (requestId) {
+      consumedSavedDestinationRequestRef.current = requestId;
+      onSavedDestinationConsumed?.(requestId);
+    }
+  }, [onSavedDestinationConsumed, savedDestinationIntent?.requestId]);
+
+  const consumeSavedDestinationIntent = useCallback((intent: SavedDestinationIntentV1) => {
+    consumedSavedDestinationRequestRef.current = intent.requestId;
+    const target = intent.tab === "sessions" ? savedMixesDestinationRef.current : savedSoundsDestinationRef.current;
+    const targetHandle = target ? findNodeHandle(target) : null;
+    if (targetHandle) AccessibilityInfo.setAccessibilityFocus(targetHandle);
+    AccessibilityInfo.announceForAccessibility(`${intent.label}. Destination reached.`);
+    onSavedDestinationConsumed?.(intent.requestId);
+  }, [onSavedDestinationConsumed]);
+
+  useEffect(() => {
+    if (!savedDestinationIntent) return;
+    savedDestinationRevisionRef.current = savedDestinationIntent.requestId;
+    consumedSavedDestinationRequestRef.current = null;
+    if (savedAreaTab !== savedDestinationIntent.tab) setSavedAreaTab(savedDestinationIntent.tab);
+  }, [savedDestinationIntent?.requestId, savedDestinationIntent?.tab]);
+
+  useEffect(() => () => {
+    savedDestinationRevisionRef.current += 1;
+    consumedSavedDestinationRequestRef.current = savedDestinationIntent?.requestId ?? consumedSavedDestinationRequestRef.current;
+  }, [savedDestinationIntent?.requestId]);
+
+  useEffect(() => {
+    if (!localStorageReady || !savedSessionsStorageReady) return;
+    if (!shouldApplySavedDestinationIntentV1(
+      savedDestinationIntent,
+      savedDestinationRevisionRef.current,
+      consumedSavedDestinationRequestRef.current,
+      activeSectionKey,
+    )) return;
+    if (savedAreaTab !== savedDestinationIntent.tab) return;
+    const layoutY = savedDestinationLayoutYRef.current[savedDestinationIntent.tab];
+    if (layoutY === null) return;
+    const intent = savedDestinationIntent;
+    consumedSavedDestinationRequestRef.current = intent.requestId;
+    requestAnimationFrame(() => {
+      if (savedDestinationRevisionRef.current !== intent.requestId) return;
+      scrollViewRef.current?.scrollToOffset({ offset: Math.max(0, layoutY - 12), animated: false });
+      requestAnimationFrame(() => {
+        if (savedDestinationRevisionRef.current === intent.requestId) consumeSavedDestinationIntent(intent);
+      });
+    });
+  }, [
+    activeSectionKey,
+    consumeSavedDestinationIntent,
+    localStorageReady,
+    savedAreaTab,
+    savedDestinationIntent,
+    savedDestinationLayoutRevision,
+    savedSessionsStorageReady,
+  ]);
+
   const handleSectionJump = (sectionKey: MobileSectionKey) => {
+    invalidateSavedDestinationIntent();
     setSettingsOpen(false);
     setPendingDeleteSessionId(null);
     setManagedSavedSessionId(null);
@@ -9340,11 +9423,11 @@ function SoundscapeApp({ initialSectionKey = "fast-start", initialSavedAreaTab =
         {!settingsOpen && activeSectionKey === "player" ? (
         <View style={styles.localLibraryCard}>
           <Text style={styles.localLibraryEyebrow}>Saved area</Text>
-          <Text style={styles.localLibraryDescription}>Saved on this device. Saved sounds are bookmarks; saved sessions restore your soundscape.</Text>
+          <Text style={styles.localLibraryDescription}>Saved on this device. Saved sounds are bookmarks; saved mixes restore your soundscape.</Text>
           <View accessibilityLabel="Saved area tabs" style={styles.savedAreaTabRow}>
             {([
               { key: "sounds" as const, label: "Saved sounds" },
-              { key: "sessions" as const, label: "Saved sessions" },
+              { key: "sessions" as const, label: "Saved mixes" },
             ]).map((tab) => {
               const selected = savedAreaTab === tab.key;
               return (
@@ -9353,6 +9436,7 @@ function SoundscapeApp({ initialSectionKey = "fast-start", initialSavedAreaTab =
                   accessibilityState={{ selected }}
                   key={tab.key}
                   onPress={() => {
+                    invalidateSavedDestinationIntent();
                     setPendingDeleteSessionId(null);
                     setManagedSavedSessionId(null);
                     setSavedAreaTab(tab.key);
@@ -9367,6 +9451,22 @@ function SoundscapeApp({ initialSectionKey = "fast-start", initialSavedAreaTab =
                 </Pressable>
               );
             })}
+          </View>
+          <View
+            accessible
+            accessibilityLabel={savedAreaTab === "sessions" ? "Saved mixes" : "Saved sounds"}
+            accessibilityRole="header"
+            onLayout={(event) => {
+              const nextY = event.nativeEvent.layout.y;
+              if (savedDestinationLayoutYRef.current[savedAreaTab] === nextY) return;
+              savedDestinationLayoutYRef.current[savedAreaTab] = nextY;
+              setSavedDestinationLayoutRevision((current) => current + 1);
+            }}
+            ref={savedAreaTab === "sessions" ? savedMixesDestinationRef : savedSoundsDestinationRef}
+            style={styles.savedDestinationHeading}
+          >
+            <Text style={styles.savedDestinationHeadingText}>{savedAreaTab === "sessions" ? "Saved mixes" : "Saved sounds"}</Text>
+            <Text style={styles.savedDestinationHeadingMeta}>{savedAreaTab === "sessions" ? "Layered and single-sound mixes saved on this device." : "Bookmarked sounds saved on this device."}</Text>
           </View>
 
           {savedAreaTab === "sessions" ? (
@@ -9394,7 +9494,7 @@ function SoundscapeApp({ initialSectionKey = "fast-start", initialSavedAreaTab =
                 </View>
               ) : null}
 
-              <Text style={styles.librarySortLabel}>Sort saved sessions</Text>
+              <Text style={styles.librarySortLabel}>Sort saved mixes</Text>
               <View accessibilityLabel="Saved session sort options" style={styles.librarySortRow}>
                 {(["Recently used", "Recently updated", "A–Z"] as SavedSessionSortMode[]).map((mode) => {
                   const selected = savedSessionSortMode === mode;
@@ -9536,7 +9636,7 @@ function SoundscapeApp({ initialSectionKey = "fast-start", initialSavedAreaTab =
                 </View>
               ) : (
                 <View style={styles.emptyLibraryBox}>
-                  <Text style={styles.emptyLibraryText}>No saved sessions yet. Start with one sound, build a layered recipe, then save it for later.</Text>
+                  <Text style={styles.emptyLibraryText}>No saved mixes yet. Start with one sound, build a layered recipe, then save it for later.</Text>
                   <View style={styles.savedSessionActionRow}>
                     <ProofButton label="Fast Start" onPress={() => handleSectionJump("fast-start")} compact />
                     <ProofButton label="Browse" onPress={() => handleSectionJump("browse")} secondary compact />
@@ -9967,9 +10067,25 @@ class SoundscapeErrorBoundary extends React.Component<React.PropsWithChildren, {
 export default function App() {
   const [classicRoute, setClassicRoute] = useState<DirectedClassicRouteV1 | null>(null);
   const [classicReturnTab, setClassicReturnTab] = useState<DirectedTabV1>("sessions");
+  const savedDestinationRequestRef = useRef(0);
+  const [savedDestinationIntent, setSavedDestinationIntent] = useState<SavedDestinationIntentV1 | null>(null);
   const openClassicRoute = (route: DirectedClassicRouteV1, returnTab: DirectedTabV1) => {
     setClassicReturnTab(returnTab);
+    if (route === "saved-mixes" || route === "saved-sounds") {
+      const requestId = savedDestinationRequestRef.current + 1;
+      savedDestinationRequestRef.current = requestId;
+      setSavedDestinationIntent(createSavedDestinationIntentV1(route, requestId));
+    } else {
+      setSavedDestinationIntent(null);
+    }
     setClassicRoute(route);
+  };
+  const handleSavedDestinationConsumed = (requestId: number) => {
+    setSavedDestinationIntent((current) => current?.requestId === requestId ? null : current);
+  };
+  const returnToDirectedSessions = () => {
+    setSavedDestinationIntent(null);
+    setClassicRoute(null);
   };
   const showClassic = !directedSessionsBetaV1 || classicRoute !== null;
   const classicSection: MobileSectionKey = classicRoute === "browse"
@@ -9989,8 +10105,10 @@ export default function App() {
             initialSectionKey={classicSection}
             initialSavedAreaTab={classicSavedAreaTab}
             initialSettingsOpen={classicRoute === "settings"}
-            directedModeBack={directedSessionsBetaV1 ? () => setClassicRoute(null) : undefined}
+            directedModeBack={directedSessionsBetaV1 ? returnToDirectedSessions : undefined}
             directedModeBackLabel={`Back to ${classicReturnTab === "sessions" ? "Sessions" : classicReturnTab === "library" ? "Library" : "Saved"}`}
+            savedDestinationIntent={savedDestinationIntent}
+            onSavedDestinationConsumed={handleSavedDestinationConsumed}
           />
         ) : (
           <DirectedSessionsExperienceV1 initialTab={classicReturnTab} onOpenClassicLibraryRoute={openClassicRoute} />
@@ -12048,6 +12166,28 @@ const styles = StyleSheet.create({
   },
   savedAreaTabTextSelected: {
     color: visualTheme.text,
+  },
+  savedDestinationHeading: {
+    backgroundColor: visualTheme.surface,
+    borderColor: visualTheme.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 3,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    width: "100%",
+  },
+  savedDestinationHeadingText: {
+    color: visualTheme.darkEarth,
+    fontSize: 18,
+    fontWeight: "900",
+    lineHeight: 23,
+  },
+  savedDestinationHeadingMeta: {
+    color: visualTheme.textMuted,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 17,
   },
   quickMixSection: {
     backgroundColor: visualTheme.panelBotanical,

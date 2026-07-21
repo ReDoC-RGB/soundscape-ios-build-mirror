@@ -111,9 +111,9 @@ function DirectedButtonV1(props: Readonly<{
   );
 }
 
-function RainSceneV1({ phaseIndex, reduceMotionEnabled }: Readonly<{ phaseIndex: number; reduceMotionEnabled: boolean }>) {
+function RainSceneV1({ phaseIndex, reduceMotionEnabled, compact = false }: Readonly<{ phaseIndex: number; reduceMotionEnabled: boolean; compact?: boolean }>) {
   return (
-    <View style={[directedStyles.scene, directedStyles.rainScene, reduceMotionEnabled ? directedStyles.staticScene : null]}>
+    <View style={[directedStyles.scene, compact ? directedStyles.sceneCompact : null, directedStyles.rainScene, reduceMotionEnabled ? directedStyles.staticScene : null]}>
       <View style={[directedStyles.rainWindow, phaseIndex >= 4 ? directedStyles.rainWindowDark : null]} />
       {[0, 1, 2, 3, 4, 5].map((line) => <View key={line} style={[directedStyles.rainLine, { left: 22 + line * 42, top: 16 + (line % 3) * 32 }]} />)}
       {phaseIndex >= 1 ? <View style={directedStyles.paperSheet} /> : null}
@@ -122,9 +122,9 @@ function RainSceneV1({ phaseIndex, reduceMotionEnabled }: Readonly<{ phaseIndex:
   );
 }
 
-function PorcelainSceneV1({ phaseIndex, reduceMotionEnabled }: Readonly<{ phaseIndex: number; reduceMotionEnabled: boolean }>) {
+function PorcelainSceneV1({ phaseIndex, reduceMotionEnabled, compact = false }: Readonly<{ phaseIndex: number; reduceMotionEnabled: boolean; compact?: boolean }>) {
   return (
-    <View style={[directedStyles.scene, directedStyles.porcelainScene, reduceMotionEnabled ? directedStyles.staticScene : null]}>
+    <View style={[directedStyles.scene, compact ? directedStyles.sceneCompact : null, directedStyles.porcelainScene, reduceMotionEnabled ? directedStyles.staticScene : null]}>
       <View style={directedStyles.porcelainPlate} />
       <View style={[directedStyles.shellMark, { transform: [{ rotate: "18deg" }] }]} />
       {phaseIndex >= 1 ? <View style={directedStyles.woodArc} /> : null}
@@ -133,9 +133,9 @@ function PorcelainSceneV1({ phaseIndex, reduceMotionEnabled }: Readonly<{ phaseI
   );
 }
 
-function WardrobeSceneV1({ phaseIndex, reduceMotionEnabled }: Readonly<{ phaseIndex: number; reduceMotionEnabled: boolean }>) {
+function WardrobeSceneV1({ phaseIndex, reduceMotionEnabled, compact = false }: Readonly<{ phaseIndex: number; reduceMotionEnabled: boolean; compact?: boolean }>) {
   return (
-    <View style={[directedStyles.scene, directedStyles.wardrobeScene, reduceMotionEnabled ? directedStyles.staticScene : null]}>
+    <View style={[directedStyles.scene, compact ? directedStyles.sceneCompact : null, directedStyles.wardrobeScene, reduceMotionEnabled ? directedStyles.staticScene : null]}>
       {[0, 1, 2].map((fold) => <View key={fold} style={[directedStyles.fabricFold, { left: 34 + fold * 72, opacity: 0.72 - fold * 0.12 }]} />)}
       {phaseIndex >= 1 && phaseIndex < 4 ? <View style={directedStyles.leatherStitch} /> : null}
       {phaseIndex >= 2 && phaseIndex < 4 ? <View style={directedStyles.brushSweep} /> : null}
@@ -143,7 +143,7 @@ function WardrobeSceneV1({ phaseIndex, reduceMotionEnabled }: Readonly<{ phaseIn
   );
 }
 
-function AtmosphericSceneV1(props: Readonly<{ sceneId: DirectedSceneIdV1; phaseIndex: number; reduceMotionEnabled: boolean }>) {
+function AtmosphericSceneV1(props: Readonly<{ sceneId: DirectedSceneIdV1; phaseIndex: number; reduceMotionEnabled: boolean; compact?: boolean }>) {
   return (
     <View accessible={false} importantForAccessibility="no-hide-descendants">
       {props.sceneId === "rain-desk-v1" ? <RainSceneV1 {...props} /> : null}
@@ -390,12 +390,16 @@ function SessionCardV1(props: Readonly<{
   const score = getDirectedSceneScoreV1(props.sceneId);
   return (
     <Pressable accessibilityHint="Opens session details without starting audio" accessibilityRole="button" onPress={props.onOpen} style={({ pressed }) => [directedStyles.sessionCard, pressed ? directedStyles.pressed : null]}>
-      <AtmosphericSceneV1 sceneId={props.sceneId} phaseIndex={0} reduceMotionEnabled={props.reduceMotionEnabled} />
-      <Text style={directedStyles.cardTitle}>{score.title}</Text>
-      <Text style={directedStyles.cardTrajectory}>{score.trajectory}</Text>
+      <View style={directedStyles.sessionCardHeader}>
+        <View style={directedStyles.sessionCardCopy}>
+          <Text style={directedStyles.cardTitle}>{score.title}</Text>
+          <Text style={directedStyles.cardTrajectory}>{score.trajectory}</Text>
+        </View>
+        <Text style={directedStyles.offlinePill}>{props.availability.state === "content-gated" ? "Not available" : props.availability.offlineReady ? "Offline ready" : props.availability.state === "downloading" ? "Downloading" : props.availability.state === "package-corrupt" ? "Retry download" : "Download"}</Text>
+      </View>
       <Text style={directedStyles.body}>{score.cardCopy}</Text>
+      <AtmosphericSceneV1 compact sceneId={props.sceneId} phaseIndex={0} reduceMotionEnabled={props.reduceMotionEnabled} />
       <Text style={directedStyles.meta}>{formatDirectedTimeV1(score.durationMs)} min · No voice · Headphones + speakers</Text>
-      <Text style={directedStyles.offlinePill}>{props.availability.state === "content-gated" ? "Not available in this beta" : props.availability.offlineReady ? "Offline ready" : props.availability.state === "downloading" ? "Downloading" : props.availability.state === "package-corrupt" ? "Retry download" : "Download"}</Text>
     </Pressable>
   );
 }
@@ -848,12 +852,15 @@ const directedStyles = StyleSheet.create({
   disabled: { opacity: 0.48 },
   pressed: { opacity: 0.74 },
   sessionCard: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.sand, padding: 14, marginTop: 12, gap: 7, overflow: "hidden" },
+  sessionCardHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
+  sessionCardCopy: { flex: 1, gap: 3 },
   continueCard: { backgroundColor: palette.white, borderRadius: 18, borderWidth: 1, borderColor: palette.sand, padding: 14, marginTop: 12 },
   savedCard: { backgroundColor: palette.white, borderRadius: 18, borderWidth: 1, borderColor: palette.sand, padding: 14, marginTop: 12 },
   cardTitle: { color: palette.ink, fontSize: 21, lineHeight: 27, fontWeight: "800", flexShrink: 1 },
   cardTrajectory: { color: palette.forest, fontSize: 16, lineHeight: 22, fontWeight: "800" },
   offlinePill: { alignSelf: "flex-start", color: palette.forest, backgroundColor: palette.sage, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, fontSize: 13, fontWeight: "800", overflow: "hidden" },
-  scene: { height: 150, borderRadius: 16, overflow: "hidden", position: "relative", marginBottom: 8 },
+  scene: { height: 92, borderRadius: 16, overflow: "hidden", position: "relative", marginVertical: 6 },
+  sceneCompact: { height: 76, borderRadius: 14, opacity: 0.88 },
   staticScene: { opacity: 1 },
   rainScene: { backgroundColor: "#7E8B8C" },
   rainWindow: { position: "absolute", inset: 14, borderWidth: 4, borderColor: "#DCE2DE", backgroundColor: "#66787C", borderRadius: 8 },
