@@ -110,6 +110,7 @@ struct DirectedSchedulerDefinitionV1 {
   let initialAppliedSteering: DirectedAppliedSteeringV1
   let initialManualTrims: [String: DirectedManualTrimV1]
   let hardAvoidanceIds: [String]
+  let definitionIdempotencyKey: String
 
   init(payload: [String: Any]) throws {
     func number(_ key: String) throws -> NSNumber {
@@ -125,12 +126,16 @@ struct DirectedSchedulerDefinitionV1 {
       let title = payload["title"] as? String,
       let trajectory = payload["trajectory"] as? String,
       let outputProfile = payload["outputProfile"] as? String,
+      let definitionIdempotencyKey = payload["idempotencyKey"] as? String,
       let assetPayloads = payload["assets"] as? [[String: Any]],
       let phasePayloads = payload["phases"] as? [[String: Any]],
       let eventPayloads = payload["events"] as? [[String: Any]],
       let pairPayloads = payload["texturePairs"] as? [[String: Any]],
       let steeringPayload = payload["initialAppliedSteering"] as? [String: Any]
     else { throw DirectedSchedulerErrorV1.invalid("INVALID_DIRECTED_SCORE") }
+    guard !definitionIdempotencyKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      throw DirectedSchedulerErrorV1.invalid("INVALID_IDEMPOTENCY_KEY")
+    }
 
     contractVersion = try number("contractVersion").intValue
     self.sceneId = sceneId
@@ -142,6 +147,7 @@ struct DirectedSchedulerDefinitionV1 {
     initialPlayedElapsedMs = try number("initialPlayedElapsedMs").doubleValue
     finalFadeStartMs = try number("finalFadeStartMs").doubleValue
     self.outputProfile = outputProfile
+    self.definitionIdempotencyKey = definitionIdempotencyKey
     playingOffline = payload["playingOffline"] as? Bool ?? false
     maxLayerGain = try number("maxLayerGain").floatValue
     minimumOptionalGain = try number("minimumOptionalGain").floatValue
@@ -416,6 +422,18 @@ final class DirectedSessionSchedulerV1 {
     outputProfile = definition.outputProfile
     manualTrims = definition.initialManualTrims
     lastProcessedElapsedMs = definition.initialPlayedElapsedMs - 0.001
+    let definitionAcknowledgement = DirectedSchedulerAcknowledgementV1(
+      status: "accepted",
+      operationId: owner.operationId,
+      idempotencyKey: definition.definitionIdempotencyKey,
+      pathRevision: 0,
+      code: nil,
+      message: nil,
+      safeCheckpointWithinMs: 0
+    )
+    lastAcknowledgement = definitionAcknowledgement
+    idempotency[definition.definitionIdempotencyKey] = definitionAcknowledgement
+    idempotencyOrder.append(definition.definitionIdempotencyKey)
     for event in definition.events where effectiveStartMs(event) < definition.initialPlayedElapsedMs {
       if event.continuous { fire(event) }
       else { firedEvents.insert(event.eventId) }

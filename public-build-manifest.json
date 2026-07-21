@@ -1,15 +1,15 @@
 {
-  "canonicalPrivateCommit": "3847b2cb9c5ee1d0c8205f24bb25ea6c8be13347",
+  "canonicalPrivateCommit": "863ca2fd27ee9e16ade7e5f6d2bb795077bce3e1",
   "exportedPaths": [
     {
       "path": ".github/workflows/ios-internal.yml",
-      "byteLength": 13979,
-      "sha256": "7ebe6f52d3573b57088902f0bd08787b02ee41e2fd0ccd0eeddb729d65ea8e7a"
+      "byteLength": 13989,
+      "sha256": "061599d9b31ae5dfd5580c40347ab0c67e8dc3f3592967a50eeea3c89c6ce579"
     },
     {
       "path": "App.tsx",
-      "byteLength": 546436,
-      "sha256": "ccfb2bfc70dfd596d0feb53f9d14dd35f18373f71098446de506763760694139"
+      "byteLength": 547694,
+      "sha256": "f93f9f2f0a0d2b2a7378e2cda8a7a3f321fa461fb17fc40e5c5d6685bb8c3d50"
     },
     {
       "path": "README.md",
@@ -18,13 +18,13 @@
     },
     {
       "path": "app.config.js",
-      "byteLength": 1856,
-      "sha256": "9e2966964383d34e456efd70bca511e1c0373c4477ee13e0a8f40caf8ace707e"
+      "byteLength": 1871,
+      "sha256": "894e18c56a7cd0b1cfc02e97a43f6165ef799f179c22be894346492d9dccbbb9"
     },
     {
       "path": "app.json",
       "byteLength": 1321,
-      "sha256": "7f3aa62bc3c2642415853797d5f433df6e8676a2e233ffbabab2e6df7784d11c"
+      "sha256": "a338c5e4aa207266cbb2159374c1023921b402c14b6e91ef346af606429bc6cb"
     },
     {
       "path": "assets/icon.png",
@@ -53,8 +53,8 @@
     },
     {
       "path": "modules/soundscape-layered-media/ios/DirectedSessionSchedulerV1.swift",
-      "byteLength": 38117,
-      "sha256": "33965ce3ac5423ddb7151c7383b7217537b3af42cc777152174efcbc1bb691bd"
+      "byteLength": 38960,
+      "sha256": "69eb5ab9c7db7eaa48110d18332f8d86aff49811b54cf352fd956f99532beb34"
     },
     {
       "path": "modules/soundscape-layered-media/ios/SoundscapeLayeredMedia.podspec",
@@ -248,13 +248,18 @@
     },
     {
       "path": "src/directedSessions/DirectedSessionsExperienceV1.tsx",
-      "byteLength": 50831,
-      "sha256": "8c828538738979c12b3d926764ff12226972babd116be3a3149c2dc9ad441cb2"
+      "byteLength": 57811,
+      "sha256": "1af649a4798b43b871fc175cdb7a86518a1e79560dd37f027f2d6b4016c37542"
     },
     {
       "path": "src/directedSessions/eligibilityV1.ts",
       "byteLength": 15570,
       "sha256": "3d7e5118d21600454d2efc0a14ec43fcdf4199c3c505704b5ac062e1e2575377"
+    },
+    {
+      "path": "src/directedSessions/foregroundProjectionPolicyV1.ts",
+      "byteLength": 2782,
+      "sha256": "cf70504954cd859059a77341d15d7978daf82f30848e9de2635c32f51c966fda"
     },
     {
       "path": "src/directedSessions/releaseGateV1.ts",
@@ -393,8 +398,8 @@
     },
     {
       "path": "src/services/directedSessionServiceV1.ts",
-      "byteLength": 23047,
-      "sha256": "49699e175c70d790e6ded3f1d88b287189b71654359a1bf0193e7f8b3528558a"
+      "byteLength": 29853,
+      "sha256": "5f4e3a81bc1e721e235f20cd6d2aa2468b266286809f5b97a8ada3c7616412e7"
     },
     {
       "path": "src/services/evidencePersistenceV1.ts",

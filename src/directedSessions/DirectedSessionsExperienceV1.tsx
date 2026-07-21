@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -12,6 +12,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NativeDirectedSessionStateV1 } from "../../modules/soundscape-layered-media";
 import { canReachRemoteMediaSourceV1 } from "../services/offlineFileStoreV1";
 import {
@@ -30,13 +31,18 @@ import {
 } from "./sceneScoresV1";
 import type { DirectedAvailabilityProjectionV1 } from "./eligibilityV1";
 import {
+  DIRECTED_FOREGROUND_PROJECTION_INTERVAL_MS,
+  shouldRunDirectedForegroundProjectionV1,
+  type DirectedProjectionAppStateV1,
+} from "./foregroundProjectionPolicyV1";
+import {
   ORIGINAL_DIRECTED_STEERING_V1,
   type DirectedSessionStateV1,
   type SavedDirectedPathV1,
 } from "./sessionStateV1";
 
-export type DirectedClassicRouteV1 = "fast-start" | "browse" | "presets" | "player" | "settings";
-type DirectedTabV1 = "sessions" | "library" | "saved";
+export type DirectedClassicRouteV1 = "fast-start" | "browse" | "presets" | "saved-mixes" | "saved-sounds" | "settings";
+export type DirectedTabV1 = "sessions" | "library" | "saved";
 type DirectedScreenV1 = "root" | "detail" | "player" | "adjust" | "completion" | "ended" | "failure";
 
 export const directedNavigationV1: readonly Readonly<{ key: DirectedTabV1; label: string }>[] = [
@@ -199,6 +205,7 @@ function DirectedPlayerV1(props: Readonly<{
   reduceMotionEnabled: boolean;
   compact: boolean;
   sendingControl: string | null;
+  backLabel: string;
   onBack: () => void;
   onTransport: () => void;
   onEnd: () => void;
@@ -215,7 +222,7 @@ function DirectedPlayerV1(props: Readonly<{
   const pendingTexture = props.state.pendingSteering?.axis === "different-texture";
   return (
     <View>
-      <DirectedButtonV1 label="Back to Sessions" onPress={props.onBack} secondary />
+      <DirectedButtonV1 label={props.backLabel} onPress={props.onBack} secondary />
       <Text style={directedStyles.eyebrow}>Now playing</Text>
       <Text accessibilityRole="header" style={directedStyles.title}>{props.state.title}</Text>
       <AtmosphericSceneV1 sceneId={props.state.sceneId as DirectedSceneIdV1} phaseIndex={props.state.phaseIndex} reduceMotionEnabled={props.reduceMotionEnabled} />
@@ -393,11 +400,15 @@ function SessionCardV1(props: Readonly<{
   );
 }
 
-export function DirectedSessionsExperienceV1(props: Readonly<{ onOpenClassicLibraryRoute: (route: DirectedClassicRouteV1) => void }>) {
+export function DirectedSessionsExperienceV1(props: Readonly<{
+  initialTab?: DirectedTabV1;
+  onOpenClassicLibraryRoute: (route: DirectedClassicRouteV1, returnTab: DirectedTabV1) => void;
+}>) {
   const { width, fontScale } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const compact = width <= 360 || fontScale > 1.2;
   const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
-  const [tab, setTab] = useState<DirectedTabV1>("sessions");
+  const [tab, setTab] = useState<DirectedTabV1>(props.initialTab ?? "sessions");
   const [screen, setScreen] = useState<DirectedScreenV1>("root");
   const [selectedSceneId, setSelectedSceneId] = useState<DirectedSceneIdV1>("rain-desk-v1");
   const [outputProfile, setOutputProfile] = useState<DirectedOutputProfileV1>("headphones");
@@ -416,112 +427,166 @@ export function DirectedSessionsExperienceV1(props: Readonly<{ onOpenClassicLibr
   const [sendingControl, setSendingControl] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [completionSaved, setCompletionSaved] = useState(false);
+  const [directedAppState, setDirectedAppState] = useState<DirectedProjectionAppStateV1>(AppState.currentState);
+  const [bottomNavMeasuredHeight, setBottomNavMeasuredHeight] = useState(58 + insets.bottom);
+  const [miniPlayerMeasuredHeight, setMiniPlayerMeasuredHeight] = useState(compact ? 118 : 82);
+  const projectionInFlight = useRef<Promise<NativeDirectedSessionStateV1 | null> | null>(null);
+  const mountedRef = useRef(false);
+  const lifecycleEpochRef = useRef(0);
 
   const refreshAvailability = useCallback(async () => {
+    const lifecycleEpoch = lifecycleEpochRef.current;
     const capability = await directedSessionServiceV1.refreshCapability();
+    if (!mountedRef.current || lifecycleEpochRef.current !== lifecycleEpoch) return;
     setCapabilityReady(capability === 1);
     const rows = await Promise.all(directedSceneScoresV1.map(async (score) => {
       const online = score.productionEligible ? await canReachRemoteMediaSourceV1(score.assets[0].sourceUri) : true;
       return [score.sceneId, await directedSessionServiceV1.getAvailability(score.sceneId, online)] as const;
     }));
-    setAvailability(Object.fromEntries(rows) as Record<DirectedSceneIdV1, DirectedAvailabilityProjectionV1>);
+    if (mountedRef.current && lifecycleEpochRef.current === lifecycleEpoch) setAvailability(Object.fromEntries(rows) as Record<DirectedSceneIdV1, DirectedAvailabilityProjectionV1>);
+  }, []);
+
+  const projectCurrentFromNative = useCallback(async (): Promise<NativeDirectedSessionStateV1 | null> => {
+    if (projectionInFlight.current) return projectionInFlight.current;
+    const lifecycleEpoch = lifecycleEpochRef.current;
+    const pending = directedSessionServiceV1.queryDirectedSession();
+    projectionInFlight.current = pending;
+    try {
+      const state = await pending;
+      if (mountedRef.current && lifecycleEpochRef.current === lifecycleEpoch) setNativeState(state);
+      return state;
+    } finally {
+      if (projectionInFlight.current === pending) projectionInFlight.current = null;
+    }
   }, []);
 
   useEffect(() => {
-    let mounted = true;
-    void AccessibilityInfo.isReduceMotionEnabled().then((value) => { if (mounted) setReduceMotionEnabled(value); });
-    const motion = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduceMotionEnabled);
+    mountedRef.current = true;
+    const lifecycleEpoch = ++lifecycleEpochRef.current;
+    void AccessibilityInfo.isReduceMotionEnabled().then((value) => { if (mountedRef.current && lifecycleEpochRef.current === lifecycleEpoch) setReduceMotionEnabled(value); });
+    const motion = AccessibilityInfo.addEventListener("reduceMotionChanged", (value) => {
+      if (mountedRef.current && lifecycleEpochRef.current === lifecycleEpoch) setReduceMotionEnabled(value);
+    });
     const removeState = directedSessionServiceV1.addListener((state) => {
-      if (!mounted) return;
+      if (!mountedRef.current || lifecycleEpochRef.current !== lifecycleEpoch) return;
       setNativeState(state);
       if (state?.transport === "completed" && state.completionEligible) setScreen("completion");
       else if (state?.transport === "failed") setScreen("failure");
     });
     const removePackage = directedSessionServiceV1.addPackageListener((sceneId, next) => {
-      if (mounted) setAvailability((current) => ({ ...current, [sceneId]: next }));
+      if (mountedRef.current && lifecycleEpochRef.current === lifecycleEpoch) setAvailability((current) => ({ ...current, [sceneId]: next }));
     });
     void Promise.all([
       refreshAvailability(),
-      directedSessionServiceV1.queryDirectedSession(),
+      projectCurrentFromNative(),
       directedSessionServiceV1.loadCheckpoint(),
       directedSessionServiceV1.loadSavedPaths(),
-    ]).then(([, current, storedCheckpoint, storedPaths]) => {
-      if (!mounted) return;
-      setNativeState(current);
+    ]).then(([, , storedCheckpoint, storedPaths]) => {
+      if (!mountedRef.current || lifecycleEpochRef.current !== lifecycleEpoch) return;
+      setNativeState(directedSessionServiceV1.currentDirectedSession());
       setCheckpoint(storedCheckpoint);
       setSavedPaths(storedPaths);
     });
     const appState = AppState.addEventListener("change", (next) => {
-      if (next === "active") void directedSessionServiceV1.queryDirectedSession().then((state) => { if (mounted) setNativeState(state); });
+      if (!mountedRef.current || lifecycleEpochRef.current !== lifecycleEpoch) return;
+      setDirectedAppState(next);
+      if (next === "active") void projectCurrentFromNative();
     });
     return () => {
-      mounted = false;
+      mountedRef.current = false;
+      if (lifecycleEpochRef.current === lifecycleEpoch) lifecycleEpochRef.current += 1;
       motion.remove();
       removeState();
       removePackage();
       appState.remove();
     };
-  }, [refreshAvailability]);
+  }, [projectCurrentFromNative, refreshAvailability]);
+
+  useEffect(() => {
+    if (!shouldRunDirectedForegroundProjectionV1(directedAppState, nativeState)) return;
+    void projectCurrentFromNative();
+    const projectionInterval = setInterval(projectCurrentFromNative, DIRECTED_FOREGROUND_PROJECTION_INTERVAL_MS);
+    return () => clearInterval(projectionInterval);
+  }, [directedAppState, nativeState?.generationId, nativeState?.sessionId, nativeState?.transport, projectCurrentFromNative]);
 
   const selectedScore = getDirectedSceneScoreV1(selectedSceneId);
   const selectedAvoidances = avoidances[selectedSceneId];
   const selectedVariant = useMemo(() => materializeDirectedSceneVariantV1(selectedScore, { hardAvoidanceIds: selectedAvoidances, outputProfile }), [selectedAvoidances, selectedScore, outputProfile]);
+  const canSettleUi = (lifecycleEpoch: number, state?: NativeDirectedSessionStateV1): boolean => {
+    if (!mountedRef.current || lifecycleEpochRef.current !== lifecycleEpoch) return false;
+    if (!state) return true;
+    const current = directedSessionServiceV1.currentDirectedSession();
+    return Boolean(current && current.sessionId === state.sessionId && current.generationId === state.generationId && current.operationId === state.operationId);
+  };
+  const openClassic = (route: DirectedClassicRouteV1) => {
+    mountedRef.current = false;
+    lifecycleEpochRef.current += 1;
+    props.onOpenClassicLibraryRoute(route, tab);
+  };
 
   const start = async (input: CreateDirectedSessionInputV1) => {
+    const lifecycleEpoch = lifecycleEpochRef.current;
     setBusy(true);
     setMessage(null);
     setCompletionSaved(false);
     try {
       const state = await directedSessionServiceV1.createDirectedSession(input);
+      if (!canSettleUi(lifecycleEpoch, state)) return;
       setNativeState(state);
       setSelectedSceneId(state.sceneId as DirectedSceneIdV1);
       setScreen("player");
       AccessibilityInfo.announceForAccessibility(`${state.title} started. ${state.phaseLabel}.`);
-    } catch {
-      setMessage("We couldn’t prepare this session. Nothing started.");
+    } catch (error) {
+      if (canSettleUi(lifecycleEpoch)) setMessage(error instanceof Error ? error.message : "We couldn’t prepare this session. Playback status could not be verified.");
     } finally {
-      setBusy(false);
+      if (canSettleUi(lifecycleEpoch)) setBusy(false);
     }
   };
 
   const handleTransport = async () => {
     if (!nativeState) return;
+    const lifecycleEpoch = lifecycleEpochRef.current;
     setBusy(true);
     try {
       const next = await directedSessionServiceV1.dispatchDirectedSession(nativeState.transport === "playing" ? "pause" : "resume");
-      setNativeState(next);
+      if (canSettleUi(lifecycleEpoch, next)) setNativeState(next);
     } finally {
-      setBusy(false);
+      if (canSettleUi(lifecycleEpoch)) setBusy(false);
     }
   };
 
   const endSession = () => Alert.alert("End this session?", undefined, [
     { text: "Keep listening", style: "cancel" },
     { text: "End session", style: "destructive", onPress: () => {
+      const lifecycleEpoch = lifecycleEpochRef.current;
       setBusy(true);
       void directedSessionServiceV1.dispatchDirectedSession("stop", "user-ended").then((state) => {
+        if (!canSettleUi(lifecycleEpoch, state)) return;
         setNativeState(state);
         setScreen("ended");
-      }).finally(() => setBusy(false));
+      }).finally(() => { if (canSettleUi(lifecycleEpoch)) setBusy(false); });
     } },
   ]);
 
   const steer = async (axis: DirectedSteeringAxisV1) => {
     if (!nativeState) return;
+    const lifecycleEpoch = lifecycleEpochRef.current;
     setSendingControl(axis);
     try {
       const next = await directedSessionServiceV1.steerDirectedSession(axis, nextLevel(nativeState.appliedSteering[axis]));
+      if (!canSettleUi(lifecycleEpoch, next)) return;
       setNativeState(next);
       AccessibilityInfo.announceForAccessibility("Steering change acknowledged and pending.");
     } catch {
-      setMessage("That change couldn’t be applied. Your current path is unchanged.");
+      if (canSettleUi(lifecycleEpoch)) setMessage("That change couldn’t be applied. Your current path is unchanged.");
     } finally {
-      setSendingControl(null);
+      if (canSettleUi(lifecycleEpoch)) setSendingControl(null);
     }
   };
 
   const texture = async () => {
     if (!nativeState) return;
+    const lifecycleEpoch = lifecycleEpochRef.current;
     setSendingControl("different-texture");
     try {
       const score = getDirectedSceneScoreV1(nativeState.sceneId as DirectedSceneIdV1);
@@ -530,31 +595,51 @@ export function DirectedSessionsExperienceV1(props: Readonly<{ onOpenClassicLibr
       const next = nativeState.pendingSteering?.axis === "different-texture"
         ? await directedSessionServiceV1.cancelPendingSteering()
         : await directedSessionServiceV1.differentTexture(pair.assetIds[0], pair.assetIds[1]);
-      setNativeState(next);
+      if (canSettleUi(lifecycleEpoch, next)) setNativeState(next);
     } catch {
-      setMessage("That change couldn’t be applied. Your current path is unchanged.");
+      if (canSettleUi(lifecycleEpoch)) setMessage("That change couldn’t be applied. Your current path is unchanged.");
     } finally {
-      setSendingControl(null);
+      if (canSettleUi(lifecycleEpoch)) setSendingControl(null);
     }
   };
 
   const undo = async () => {
+    const lifecycleEpoch = lifecycleEpochRef.current;
     setSendingControl("undo");
     try {
       const next = await directedSessionServiceV1.undoDirectedSessionSteering();
+      if (!canSettleUi(lifecycleEpoch, next)) return;
       setNativeState(next);
       AccessibilityInfo.announceForAccessibility("Previous path restored.");
     } catch {
-      setMessage("Couldn’t restore the previous path. The current authoritative state is still active.");
+      if (canSettleUi(lifecycleEpoch)) setMessage("Couldn’t restore the previous path. The current authoritative state is still active.");
     } finally {
-      setSendingControl(null);
+      if (canSettleUi(lifecycleEpoch)) setSendingControl(null);
     }
   };
 
   const profile = async (nextProfile: DirectedOutputProfileV1) => {
+    const lifecycleEpoch = lifecycleEpochRef.current;
     setSendingControl("profile");
-    try { setNativeState(await directedSessionServiceV1.setDirectedSessionOutputProfile(nextProfile)); }
-    finally { setSendingControl(null); }
+    try {
+      const next = await directedSessionServiceV1.setDirectedSessionOutputProfile(nextProfile);
+      if (canSettleUi(lifecycleEpoch, next)) setNativeState(next);
+    } finally {
+      if (canSettleUi(lifecycleEpoch)) setSendingControl(null);
+    }
+  };
+
+  const adjustLayer = async (layerId: string, change: Readonly<{ enabled?: boolean; trimDb?: -3 | 0 | 3 }>) => {
+    const lifecycleEpoch = lifecycleEpochRef.current;
+    setSendingControl(layerId);
+    try {
+      const next = await directedSessionServiceV1.adjustDirectedSession(layerId, change);
+      if (canSettleUi(lifecycleEpoch, next)) setNativeState(next);
+    } catch {
+      if (canSettleUi(lifecycleEpoch)) setMessage("That layer adjustment couldn’t be applied. The current authoritative state is still active.");
+    } finally {
+      if (canSettleUi(lifecycleEpoch)) setSendingControl(null);
+    }
   };
 
   const replay = async (mode: "path" | "original") => {
@@ -596,10 +681,10 @@ export function DirectedSessionsExperienceV1(props: Readonly<{ onOpenClassicLibr
     <View>
       <Text accessibilityRole="header" style={directedStyles.title}>Library</Text>
       <Text style={directedStyles.body}>Classic sounds and static mixes remain available here.</Text>
-      <DirectedButtonV1 label="Find a sound" onPress={() => props.onOpenClassicLibraryRoute("fast-start")} />
-      <DirectedButtonV1 label="Browse sounds" onPress={() => props.onOpenClassicLibraryRoute("browse")} secondary />
-      <DirectedButtonV1 label="Presets" onPress={() => props.onOpenClassicLibraryRoute("presets")} secondary />
-      <DirectedButtonV1 label="Build a mix" onPress={() => props.onOpenClassicLibraryRoute("presets")} secondary />
+      <DirectedButtonV1 label="Find a sound" onPress={() => openClassic("fast-start")} />
+      <DirectedButtonV1 label="Browse sounds" onPress={() => openClassic("browse")} secondary />
+      <DirectedButtonV1 label="Presets" onPress={() => openClassic("presets")} secondary />
+      <DirectedButtonV1 label="Build a mix" onPress={() => openClassic("presets")} secondary />
     </View>
   );
 
@@ -632,9 +717,9 @@ export function DirectedSessionsExperienceV1(props: Readonly<{ onOpenClassicLibr
         </View>
       ))}
       <Text style={directedStyles.sectionTitle}>Mixes</Text>
-      <DirectedButtonV1 label="Open saved mixes" onPress={() => props.onOpenClassicLibraryRoute("player")} secondary />
+      <DirectedButtonV1 label="Open saved mixes" onPress={() => openClassic("saved-mixes")} secondary />
       <Text style={directedStyles.sectionTitle}>Sounds</Text>
-      <DirectedButtonV1 label="Open saved sounds" onPress={() => props.onOpenClassicLibraryRoute("browse")} secondary />
+      <DirectedButtonV1 label="Open saved sounds" onPress={() => openClassic("saved-sounds")} secondary />
     </View>
   );
 
@@ -676,63 +761,99 @@ export function DirectedSessionsExperienceV1(props: Readonly<{ onOpenClassicLibr
     if (capabilityReady === null) return <View style={directedStyles.center}><ActivityIndicator color={palette.earth} /><Text style={directedStyles.body}>Checking this session…</Text></View>;
     if (!capabilityReady) return <View><Text accessibilityRole="alert" style={directedStyles.title}>Sessions are unavailable in this build.</Text><DirectedButtonV1 label="Open Library" onPress={() => setTab("library")} /><DirectedButtonV1 label="Try again" onPress={() => void refreshAvailability()} secondary /></View>;
     if (screen === "detail") return renderDetail();
-    if (screen === "player" && nativeState) return <DirectedPlayerV1 state={nativeState} reduceMotionEnabled={reduceMotionEnabled} compact={compact} sendingControl={sendingControl} onBack={() => setScreen("root")} onTransport={() => void handleTransport()} onEnd={endSession} onSteer={(axis) => void steer(axis)} onTexture={() => void texture()} onUndo={() => void undo()} onProfile={(next) => void profile(next)} onAdjust={() => setScreen("adjust")} />;
-    if (screen === "adjust" && nativeState) return <DirectedAdjustV1 state={nativeState} busy={sendingControl !== null} onBack={() => setScreen("player")} onTrim={(layerId, trimDb) => { setSendingControl(layerId); void directedSessionServiceV1.adjustDirectedSession(layerId, { trimDb }).then(setNativeState).finally(() => setSendingControl(null)); }} onToggle={(layerId, enabled) => { setSendingControl(layerId); void directedSessionServiceV1.adjustDirectedSession(layerId, { enabled }).then(setNativeState).finally(() => setSendingControl(null)); }} />;
+    if (screen === "player" && nativeState) return <DirectedPlayerV1 state={nativeState} reduceMotionEnabled={reduceMotionEnabled} compact={compact} sendingControl={sendingControl} backLabel={`Back to ${tab === "sessions" ? "Sessions" : tab === "library" ? "Library" : "Saved"}`} onBack={() => setScreen("root")} onTransport={() => void handleTransport()} onEnd={endSession} onSteer={(axis) => void steer(axis)} onTexture={() => void texture()} onUndo={() => void undo()} onProfile={(next) => void profile(next)} onAdjust={() => setScreen("adjust")} />;
+    if (screen === "adjust" && nativeState) return <DirectedAdjustV1 state={nativeState} busy={sendingControl !== null} onBack={() => setScreen("player")} onTrim={(layerId, trimDb) => void adjustLayer(layerId, { trimDb })} onToggle={(layerId, enabled) => void adjustLayer(layerId, { enabled })} />;
     if (screen === "completion" && nativeState) return <DirectedCompletionV1 state={nativeState} saved={completionSaved} busy={busy} message={message} onReplayPath={() => void replay("path")} onReplayOriginal={() => void replay("original")} onSave={() => { setBusy(true); void directedSessionServiceV1.saveCompletedPath(`${nativeState.title} path`).then((saved) => { setCompletionSaved(true); setMessage("Path saved on this device."); setSavedPaths((current) => [...current, saved]); }).catch(() => setMessage("This path wasn’t saved. Your completed session is unchanged.")).finally(() => setBusy(false)); }} onMore={() => { setScreen("root"); setTab("sessions"); }} onFeedback={(value) => void directedSessionServiceV1.saveFeedback(value).then(() => setMessage("Feedback saved on this device."))} />;
     if (screen === "ended") return <View><Text accessibilityRole="header" style={directedStyles.title}>Session ended early</Text><Text style={directedStyles.body}>This was not saved as a completed path.</Text><DirectedButtonV1 label="Start over" onPress={() => setScreen("detail")} /><DirectedButtonV1 label="Back to Sessions" onPress={() => { setScreen("root"); setTab("sessions"); }} secondary /></View>;
     if (screen === "failure") return <View><Text accessibilityLiveRegion="assertive" accessibilityRole="alert" style={directedStyles.title}>The session stopped because a sound became unavailable.</Text><Text style={directedStyles.body}>No completion was recorded.</Text><DirectedButtonV1 label="Retry" onPress={() => setScreen("detail")} /><DirectedButtonV1 label="Back to Sessions" onPress={() => { setScreen("root"); setTab("sessions"); }} secondary /></View>;
-    return tab === "sessions" ? renderSessions() : tab === "library" ? renderLibrary() : renderSaved();
+    const rootContent = tab === "sessions" ? renderSessions() : tab === "library" ? renderLibrary() : renderSaved();
+    return <View>{rootContent}{message ? <Text accessibilityLiveRegion="assertive" accessibilityRole="alert" style={directedStyles.warning}>{message}</Text> : null}</View>;
   })();
 
   const showRootChrome = screen === "root";
   const showMini = nativeState && ["playing", "paused", "interrupted"].includes(nativeState.transport) && screen !== "player" && screen !== "adjust" && screen !== "completion";
+  const miniPlayerBottom = showRootChrome ? bottomNavMeasuredHeight + 10 : insets.bottom + 12;
+  const contentBottomPadding = showMini
+    ? miniPlayerBottom + miniPlayerMeasuredHeight + 16
+    : showRootChrome
+      ? bottomNavMeasuredHeight + 20
+      : 28 + insets.bottom;
   return (
-    <View style={directedStyles.shell}>
+    <SafeAreaView edges={["top", "left", "right"]} style={directedStyles.safeAreaShell}>
       <View style={directedStyles.topBar}>
-        <Text style={directedStyles.brand}>Soundscape</Text>
-        <DirectedButtonV1 label="Settings" onPress={() => props.onOpenClassicLibraryRoute("settings")} secondary />
+        <Text numberOfLines={1} style={directedStyles.brand}>Soundscape</Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => openClassic("settings")}
+          style={({ pressed }) => [directedStyles.headerSettings, pressed ? directedStyles.pressed : null]}
+        >
+          <Text style={directedStyles.headerSettingsText}>Settings</Text>
+        </Pressable>
       </View>
-      <ScrollView contentContainerStyle={[directedStyles.content, showMini ? directedStyles.contentWithMini : null, showRootChrome ? directedStyles.contentWithNav : null]}>{content}</ScrollView>
-      {showMini && nativeState ? <DirectedMiniPlayerV1 state={nativeState} compact={compact} onOpen={() => setScreen("player")} onTransport={() => void handleTransport()} /> : null}
-      {showRootChrome ? (
-        <View accessibilityLabel="Directed session navigation" style={directedStyles.bottomNav}>
-          {directedNavigationV1.map((item) => <Pressable accessibilityRole="tab" accessibilityState={{ selected: tab === item.key }} key={item.key} onPress={() => setTab(item.key)} style={[directedStyles.navTab, tab === item.key ? directedStyles.navTabSelected : null]}><Text style={[directedStyles.navText, tab === item.key ? directedStyles.navTextSelected : null]}>{item.label}</Text></Pressable>)}
+      <ScrollView contentContainerStyle={[directedStyles.content, { paddingBottom: contentBottomPadding }]}>{content}</ScrollView>
+      {showMini && nativeState ? (
+        <View
+          onLayout={({ nativeEvent }) => setMiniPlayerMeasuredHeight(nativeEvent.layout.height)}
+          style={[directedStyles.miniPlayerPlacement, { bottom: miniPlayerBottom }]}
+        >
+          <DirectedMiniPlayerV1 state={nativeState} compact={compact} onOpen={() => setScreen("player")} onTransport={() => void handleTransport()} />
         </View>
       ) : null}
-    </View>
+      {showRootChrome ? (
+        <SafeAreaView
+          edges={["bottom", "left", "right"]}
+          onLayout={({ nativeEvent }) => setBottomNavMeasuredHeight(nativeEvent.layout.height)}
+          style={directedStyles.bottomNavSafeArea}
+        >
+          <View accessibilityLabel="Directed session navigation" accessibilityRole="tablist" style={directedStyles.bottomNav}>
+            {directedNavigationV1.map((item) => (
+              <Pressable
+                accessibilityRole="tab"
+                accessibilityState={{ selected: tab === item.key }}
+                key={item.key}
+                onPress={() => setTab(item.key)}
+                style={[directedStyles.navTab, tab === item.key ? directedStyles.navTabSelected : null]}
+              >
+                <Text style={[directedStyles.navText, tab === item.key ? directedStyles.navTextSelected : null]}>{item.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </SafeAreaView>
+      ) : null}
+    </SafeAreaView>
   );
 }
 
 const directedStyles = StyleSheet.create({
-  shell: { flex: 1, backgroundColor: palette.linen },
-  topBar: { minHeight: 56, paddingHorizontal: 18, paddingVertical: 8, backgroundColor: palette.earth, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  brand: { color: palette.linen, fontSize: 21, fontWeight: "800" },
-  content: { padding: 18, paddingBottom: 32, gap: 14 },
-  contentWithNav: { paddingBottom: 112 },
-  contentWithMini: { paddingBottom: 210 },
+  safeAreaShell: { flex: 1, backgroundColor: palette.linen },
+  topBar: { minHeight: 56, paddingHorizontal: 16, paddingVertical: 6, backgroundColor: palette.linen, borderBottomWidth: 1, borderBottomColor: palette.sand, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  brand: { color: palette.ink, fontSize: 21, lineHeight: 25, fontWeight: "800", flexShrink: 1 },
+  headerSettings: { minHeight: 44, minWidth: 44, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: palette.earth, backgroundColor: palette.white, alignItems: "center", justifyContent: "center" },
+  headerSettingsText: { color: palette.earth, fontSize: 14, lineHeight: 19, fontWeight: "800" },
+  content: { padding: 16, paddingBottom: 28, gap: 12 },
   center: { minHeight: 280, alignItems: "center", justifyContent: "center", gap: 12 },
-  title: { color: palette.ink, fontSize: 30, lineHeight: 36, fontWeight: "800", flexShrink: 1 },
+  title: { color: palette.ink, fontSize: 28, lineHeight: 34, fontWeight: "800", flexShrink: 1 },
   eyebrow: { color: palette.forest, fontSize: 13, lineHeight: 18, fontWeight: "800", textTransform: "uppercase", letterSpacing: 1.2, marginTop: 12 },
-  sectionTitle: { color: palette.ink, fontSize: 22, lineHeight: 28, fontWeight: "800", marginTop: 18 },
+  sectionTitle: { color: palette.ink, fontSize: 20, lineHeight: 26, fontWeight: "800", marginTop: 16 },
   sectionLabel: { color: palette.earth, fontSize: 16, lineHeight: 22, fontWeight: "800", marginTop: 12 },
   body: { color: palette.walnut, fontSize: 16, lineHeight: 24, flexShrink: 1 },
   meta: { color: palette.walnut, fontSize: 14, lineHeight: 21, fontWeight: "700", flexShrink: 1 },
   warning: { color: palette.warning, backgroundColor: palette.sand, borderRadius: 12, padding: 12, fontSize: 16, lineHeight: 23, fontWeight: "700" },
-  button: { minHeight: 44, minWidth: 44, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 11, backgroundColor: palette.earth, alignItems: "center", justifyContent: "center", marginTop: 8, flexShrink: 1 },
-  buttonSecondary: { backgroundColor: palette.sand, borderWidth: 1, borderColor: palette.earth },
+  button: { minHeight: 44, minWidth: 44, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 10, backgroundColor: palette.earth, alignItems: "center", justifyContent: "center", marginTop: 8, flexShrink: 1 },
+  buttonSecondary: { backgroundColor: palette.white, borderWidth: 1, borderColor: palette.earth },
   buttonDestructive: { backgroundColor: palette.warning },
   buttonSelected: { backgroundColor: palette.forest },
   buttonText: { color: palette.linen, fontSize: 16, lineHeight: 21, fontWeight: "800", textAlign: "center", flexShrink: 1 },
   buttonSecondaryText: { color: palette.ink },
   disabled: { opacity: 0.48 },
   pressed: { opacity: 0.74 },
-  sessionCard: { backgroundColor: palette.white, borderRadius: 22, borderWidth: 1, borderColor: palette.sand, padding: 14, marginTop: 14, gap: 7, overflow: "hidden" },
-  continueCard: { backgroundColor: palette.sage, borderRadius: 18, padding: 16, marginTop: 12 },
-  savedCard: { backgroundColor: palette.white, borderRadius: 18, padding: 14, marginTop: 12 },
+  sessionCard: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.sand, padding: 14, marginTop: 12, gap: 7, overflow: "hidden" },
+  continueCard: { backgroundColor: palette.white, borderRadius: 18, borderWidth: 1, borderColor: palette.sand, padding: 14, marginTop: 12 },
+  savedCard: { backgroundColor: palette.white, borderRadius: 18, borderWidth: 1, borderColor: palette.sand, padding: 14, marginTop: 12 },
   cardTitle: { color: palette.ink, fontSize: 21, lineHeight: 27, fontWeight: "800", flexShrink: 1 },
   cardTrajectory: { color: palette.forest, fontSize: 16, lineHeight: 22, fontWeight: "800" },
   offlinePill: { alignSelf: "flex-start", color: palette.forest, backgroundColor: palette.sage, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, fontSize: 13, fontWeight: "800", overflow: "hidden" },
-  scene: { height: 170, borderRadius: 18, overflow: "hidden", position: "relative", marginBottom: 8 },
+  scene: { height: 150, borderRadius: 16, overflow: "hidden", position: "relative", marginBottom: 8 },
   staticScene: { opacity: 1 },
   rainScene: { backgroundColor: "#7E8B8C" },
   rainWindow: { position: "absolute", inset: 14, borderWidth: 4, borderColor: "#DCE2DE", backgroundColor: "#66787C", borderRadius: 8 },
@@ -755,7 +876,7 @@ const directedStyles = StyleSheet.create({
   phaseTitle: { color: palette.ink, fontSize: 24, lineHeight: 30, fontWeight: "800" },
   progressCopy: { color: palette.earth, fontSize: 16, lineHeight: 23, fontWeight: "700" },
   nextCopy: { color: palette.forest, fontSize: 17, lineHeight: 24, fontWeight: "800" },
-  statusBanner: { color: palette.ink, backgroundColor: palette.sage, borderRadius: 12, padding: 12, fontSize: 15, lineHeight: 22, marginTop: 8 },
+  statusBanner: { color: palette.ink, backgroundColor: palette.white, borderRadius: 14, borderWidth: 1, borderColor: palette.sand, padding: 12, fontSize: 15, lineHeight: 22, marginTop: 8 },
   statusRow: { color: palette.earth, fontSize: 15, lineHeight: 22, fontWeight: "700", marginTop: 12 },
   transportRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 8 },
   steeringGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
@@ -773,18 +894,20 @@ const directedStyles = StyleSheet.create({
   chipSelected: { backgroundColor: palette.sage, borderWidth: 2, borderColor: palette.forest },
   chipText: { color: palette.ink, fontSize: 14, lineHeight: 20, fontWeight: "700", flexShrink: 1 },
   feedbackRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  adjustCard: { backgroundColor: palette.white, borderRadius: 16, padding: 14, marginTop: 12 },
+  adjustCard: { backgroundColor: palette.white, borderRadius: 16, borderWidth: 1, borderColor: palette.sand, padding: 14, marginTop: 12 },
   renameInput: { minHeight: 44, color: palette.ink, borderWidth: 1, borderColor: palette.earth, borderRadius: 10, paddingHorizontal: 12, fontSize: 16, fontWeight: "700" },
   savedActionRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  miniPlayer: { position: "absolute", left: 10, right: 10, bottom: 76, minHeight: 86, backgroundColor: palette.earth, borderRadius: 18, padding: 10, flexDirection: "row", alignItems: "center", gap: 10, shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 8, elevation: 5 },
+  miniPlayerPlacement: { position: "absolute", left: 10, right: 10 },
+  miniPlayer: { minHeight: 82, backgroundColor: palette.earth, borderRadius: 18, padding: 10, flexDirection: "row", alignItems: "center", gap: 10, shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 8, elevation: 5 },
   miniPlayerCompact: { minHeight: 118, flexDirection: "column", alignItems: "stretch" },
   miniSummary: { flex: 1, minHeight: 44, justifyContent: "center" },
   miniTitle: { color: palette.linen, fontSize: 16, lineHeight: 21, fontWeight: "800" },
   miniPhase: { color: palette.sand, fontSize: 13, lineHeight: 18 },
   pendingText: { color: palette.sage, fontSize: 12, lineHeight: 16, fontWeight: "800" },
-  bottomNav: { position: "absolute", left: 0, right: 0, bottom: 0, minHeight: 68, paddingHorizontal: 8, paddingBottom: 8, paddingTop: 6, backgroundColor: palette.linen, borderTopWidth: 1, borderColor: palette.sand, flexDirection: "row", gap: 6 },
-  navTab: { flex: 1, minHeight: 44, minWidth: 44, borderRadius: 14, alignItems: "center", justifyContent: "center", paddingHorizontal: 5 },
-  navTabSelected: { backgroundColor: palette.forest },
+  bottomNavSafeArea: { position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: palette.linen, borderTopWidth: 1, borderColor: palette.sand },
+  bottomNav: { minHeight: 58, paddingHorizontal: 10, paddingBottom: 6, paddingTop: 6, backgroundColor: palette.linen, flexDirection: "row", gap: 8 },
+  navTab: { flex: 1, minHeight: 44, minWidth: 44, borderRadius: 999, borderWidth: 1, borderColor: "transparent", alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
+  navTabSelected: { backgroundColor: palette.sage, borderColor: palette.forest },
   navText: { color: palette.earth, fontSize: 14, lineHeight: 19, fontWeight: "700", flexShrink: 1 },
-  navTextSelected: { color: palette.linen, fontWeight: "900" },
+  navTextSelected: { color: palette.forest, fontWeight: "900" },
 });

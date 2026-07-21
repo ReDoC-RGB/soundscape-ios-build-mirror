@@ -1,9 +1,9 @@
 const UNBOUND_SOURCE_COMMIT = "0000000000000000000000000000000000000000";
 const RELEASE = Object.freeze({
-  label: "Alpha 0.14.2",
-  displayLabel: "Alpha 0.14.2 — Independent Build Pipeline Proof",
-  codename: "independent-build-pipeline-proof-v1",
-  internalLabel: "Alpha 0.14.2+independent-build-pipeline-proof-v1",
+  label: "Alpha 0.14.3",
+  displayLabel: "Alpha 0.14.3 — Directed Sessions Physical Review Fix",
+  codename: "directed-sessions-physical-review-fix-v1",
+  internalLabel: "Alpha 0.14.3+directed-sessions-physical-review-fix-v1",
 });
 
 module.exports = ({ config }) => {

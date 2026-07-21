@@ -18,7 +18,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.wellmadesystems.soundscape",
-      "buildNumber": "12",
+      "buildNumber": "13",
       "infoPlist": {
         "UIBackgroundModes": [
           "audio"
@@ -27,7 +27,7 @@
     },
     "android": {
       "package": "com.wellmadesystems.soundscape",
-      "versionCode": 15,
+      "versionCode": 16,
       "permissions": [
         "android.permission.POST_NOTIFICATIONS"
       ],

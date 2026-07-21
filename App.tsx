@@ -50,6 +50,7 @@ import { getDefaultSafeM6BuilderDiscoveryCandidatesV1 } from "./src/catalog/m6Bu
 import {
   DirectedSessionsExperienceV1,
   type DirectedClassicRouteV1,
+  type DirectedTabV1,
 } from "./src/directedSessions/DirectedSessionsExperienceV1";
 import {
   DIRECTED_SESSIONS_RELEASE_CONFIG_V1,
@@ -348,11 +349,11 @@ const playbackTraceDisplayRefreshMillis = 250;
 const playbackTraceEventLoopGapThresholdMillis = 250;
 const sessionReplacementFadeMillis = 120;
 const appIterationInfo = {
-  label: "Alpha 0.14.2",
-  displayLabel: "Alpha 0.14.2 — Independent Build Pipeline Proof",
-  currentUpdate: "Alpha 0.14.2 — Independent Build Pipeline Proof",
-  codename: "independent-build-pipeline-proof-v1",
-  fullInternalLabel: "Alpha 0.14.2+independent-build-pipeline-proof-v1",
+  label: "Alpha 0.14.3",
+  displayLabel: "Alpha 0.14.3 — Directed Sessions Physical Review Fix",
+  currentUpdate: "Alpha 0.14.3 — Directed Sessions Physical Review Fix",
+  codename: "directed-sessions-physical-review-fix-v1",
+  fullInternalLabel: "Alpha 0.14.3+directed-sessions-physical-review-fix-v1",
   acceptedNativeBaseline: {
     label: "Alpha 0.11.7",
     displayLabel: "Alpha 0.11.7 — Single Preview Selection-Ready Fix",
@@ -1115,11 +1116,13 @@ const PlaybackTimingTraceDisplay = React.forwardRef<
 
 type SoundscapeAppProps = Readonly<{
   initialSectionKey?: MobileSectionKey;
+  initialSavedAreaTab?: SavedAreaTab;
   initialSettingsOpen?: boolean;
   directedModeBack?: () => void;
+  directedModeBackLabel?: string;
 }>;
 
-function SoundscapeApp({ initialSectionKey = "fast-start", initialSettingsOpen = false, directedModeBack }: SoundscapeAppProps = {}) {
+function SoundscapeApp({ initialSectionKey = "fast-start", initialSavedAreaTab = "sessions", initialSettingsOpen = false, directedModeBack, directedModeBackLabel = "Back to Sessions" }: SoundscapeAppProps = {}) {
   const { fontScale, width: screenWidth } = useWindowDimensions();
   const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
   useEffect(() => {
@@ -1144,6 +1147,7 @@ function SoundscapeApp({ initialSectionKey = "fast-start", initialSettingsOpen =
   const presetLayerChoiceLayout = getPresetLayerChoiceLayout(screenWidth, fontScale);
   const useStackedSavedSessionManageActions =
     screenWidth < mobileUxBreakpoints.savedManageStackWidth || fontScale > mobileUxBreakpoints.largeTextScale;
+  const useStackedClassicHeader = screenWidth <= 360 || fontScale >= 1.35;
   const [bottomNavigationHeight, setBottomNavigationHeight] = useState<number>(mobileUxTokens.bottomNavigationContentHeight);
   const [miniPlayerHeight, setMiniPlayerHeight] = useState<number>(mobileUxTokens.miniPlayerEstimatedHeight);
   const handleBottomNavigationLayout = (event: LayoutChangeEvent) => {
@@ -1352,7 +1356,7 @@ function SoundscapeApp({ initialSectionKey = "fast-start", initialSettingsOpen =
   const [recentSoundIds, setRecentSoundIds] = useState<string[]>([]);
   const [savedSessions, setSavedSessions] = useState<SavedSession[]>([]);
   const [savedSessionsStorageReady, setSavedSessionsStorageReady] = useState(false);
-  const [savedAreaTab, setSavedAreaTab] = useState<SavedAreaTab>("sessions");
+  const [savedAreaTab, setSavedAreaTab] = useState<SavedAreaTab>(initialSavedAreaTab);
   const [savedSessionSortMode, setSavedSessionSortMode] = useState<SavedSessionSortMode>("Recently used");
   const [savedSessionDialog, setSavedSessionDialog] = useState<SavedSessionDialogState | null>(null);
   const [savedSessionNameInput, setSavedSessionNameInput] = useState("");
@@ -1405,7 +1409,7 @@ function SoundscapeApp({ initialSectionKey = "fast-start", initialSettingsOpen =
   const [mediaNotificationPermission, setMediaNotificationPermission] =
     useState<MediaNotificationPermissionState | null>(null);
   const nativeReconciledSessionIdRef = useRef<string | null>(null);
-  const startTabPreferenceAppliedRef = useRef(false);
+  const startTabPreferenceAppliedRef = useRef(Boolean(directedModeBack));
   const timerEndsAtMillisRef = useRef<number | null>(null);
   const timerFinishHandledRef = useRef(false);
   const sessionStopInProgressRef = useRef(false);
@@ -7884,12 +7888,14 @@ function SoundscapeApp({ initialSectionKey = "fast-start", initialSettingsOpen =
         keyboardShouldPersistTaps="handled"
         ListHeaderComponent={(
           <>
-        <View style={styles.compactAppHeader}>
-          {directedModeBack ? (
-            <ProofButton label="Back to Sessions" onPress={directedModeBack} secondary compact />
-          ) : null}
+        {directedModeBack ? (
+          <View style={styles.directedReturnRow}>
+            <ProofButton label={directedModeBackLabel} onPress={directedModeBack} secondary compact />
+          </View>
+        ) : null}
+        <View style={[styles.compactAppHeader, useStackedClassicHeader ? styles.classicHeaderStacked : null]}>
           <View style={styles.topHeaderTitleBlock}>
-            <Text style={styles.title}>Soundscape</Text>
+            <Text numberOfLines={1} style={styles.title}>Soundscape</Text>
           </View>
           <Pressable
             accessibilityLabel={settingsOpen ? "Close settings" : "Settings"}
@@ -9960,14 +9966,20 @@ class SoundscapeErrorBoundary extends React.Component<React.PropsWithChildren, {
 
 export default function App() {
   const [classicRoute, setClassicRoute] = useState<DirectedClassicRouteV1 | null>(null);
+  const [classicReturnTab, setClassicReturnTab] = useState<DirectedTabV1>("sessions");
+  const openClassicRoute = (route: DirectedClassicRouteV1, returnTab: DirectedTabV1) => {
+    setClassicReturnTab(returnTab);
+    setClassicRoute(route);
+  };
   const showClassic = !directedSessionsBetaV1 || classicRoute !== null;
   const classicSection: MobileSectionKey = classicRoute === "browse"
     ? "browse"
     : classicRoute === "presets"
       ? "presets"
-      : classicRoute === "player"
+      : classicRoute === "saved-mixes" || classicRoute === "saved-sounds"
         ? "player"
         : "fast-start";
+  const classicSavedAreaTab: SavedAreaTab = classicRoute === "saved-sounds" ? "sounds" : "sessions";
   return (
     <SafeAreaProvider>
       <SoundscapeErrorBoundary>
@@ -9975,11 +9987,13 @@ export default function App() {
           <SoundscapeApp
             key={`classic-${classicRoute ?? "accepted"}`}
             initialSectionKey={classicSection}
+            initialSavedAreaTab={classicSavedAreaTab}
             initialSettingsOpen={classicRoute === "settings"}
             directedModeBack={directedSessionsBetaV1 ? () => setClassicRoute(null) : undefined}
+            directedModeBackLabel={`Back to ${classicReturnTab === "sessions" ? "Sessions" : classicReturnTab === "library" ? "Library" : "Saved"}`}
           />
         ) : (
-          <DirectedSessionsExperienceV1 onOpenClassicLibraryRoute={setClassicRoute} />
+          <DirectedSessionsExperienceV1 initialTab={classicReturnTab} onOpenClassicLibraryRoute={openClassicRoute} />
         )}
       </SoundscapeErrorBoundary>
     </SafeAreaProvider>
@@ -11418,6 +11432,14 @@ const styles = StyleSheet.create({
     minHeight: mobileUxTokens.controlMinHeight,
     paddingHorizontal: mobileUxTokens.cardPadding,
     paddingVertical: mobileUxTokens.spacing.xs,
+  },
+  classicHeaderStacked: {
+    alignItems: "stretch",
+    flexDirection: "column",
+  },
+  directedReturnRow: {
+    alignItems: "flex-start",
+    marginBottom: mobileUxTokens.spacing.xs,
   },
   topHeaderTitleBlock: {
     flex: 1,

@@ -41,6 +41,11 @@ import {
   type DirectedSessionStateV1,
   type SavedDirectedPathV1,
 } from "../directedSessions/sessionStateV1";
+import {
+  allocateDirectedGenerationV1,
+  shouldAcceptDirectedProjectionV1,
+  shouldPersistDirectedProjectionV1,
+} from "../directedSessions/foregroundProjectionPolicyV1";
 
 export const DIRECTED_SESSION_SCHEDULER_VERSION_V1 = 1 as const;
 const DIRECTED_OFFLINE_QUOTA_BYTES = 250 * 1024 * 1024;
@@ -48,6 +53,12 @@ const DIRECTED_OFFLINE_RESERVE_BYTES = 25 * 1024 * 1024;
 
 type DirectedStateListenerV1 = (state: NativeDirectedSessionStateV1 | null) => void;
 type DirectedPackageListenerV1 = (sceneId: DirectedSceneIdV1, availability: DirectedAvailabilityProjectionV1) => void;
+type NativeDirectedCommandFenceV1 = Readonly<{
+  sessionId: string;
+  generationId: number;
+  operationId: number;
+  idempotencyKey: string;
+}>;
 
 export type CreateDirectedSessionInputV1 = Readonly<{
   sceneId: DirectedSceneIdV1;
@@ -151,6 +162,9 @@ export class DirectedSessionServiceV1 {
   private offlineManager: OfflineDownloadManager | null = null;
   private offlineManagerLoading: Promise<OfflineDownloadManager> | null = null;
   private readonly cancelledPackageScenes = new Set<DirectedSceneIdV1>();
+  private nativeStateAcceptance: Promise<void> = Promise.resolve();
+  private nativeStateEpoch = 0;
+  private lastPersistedNativeState: NativeDirectedSessionStateV1 | null = null;
 
   constructor() {
     try {
@@ -164,6 +178,7 @@ export class DirectedSessionServiceV1 {
   }
 
   dispose(): void {
+    this.nativeStateEpoch += 1;
     this.nativeListenerHandle?.remove();
     this.nativeListenerHandle = null;
     this.listeners.clear();
@@ -181,6 +196,10 @@ export class DirectedSessionServiceV1 {
     return () => this.packageListeners.delete(listener);
   }
 
+  currentDirectedSession(): NativeDirectedSessionStateV1 | null {
+    return this.current;
+  }
+
   async refreshCapability(): Promise<number> {
     try {
       this.capabilityVersion = NativeMedia.isAvailable() ? NativeMedia.directedSessionSchedulerVersion() : 0;
@@ -191,15 +210,13 @@ export class DirectedSessionServiceV1 {
   }
 
   async queryDirectedSession(): Promise<NativeDirectedSessionStateV1 | null> {
-    if (await this.refreshCapability() < 1) {
-      await this.acceptNativeState(null);
-      return null;
-    }
+    if (await this.refreshCapability() < 1) return this.current;
     try {
       const queried = await NativeMedia.getDirectedSessionState();
-      await this.acceptNativeState(finiteNativeState(queried) ? queried : null);
+      if (finiteNativeState(queried)) await this.acceptNativeState(queried);
     } catch {
-      await this.acceptNativeState(null);
+      // A transient bridge/query failure must not erase a still-authoritative state.
+      // The next native event or foreground projection query will reconcile it.
     }
     return this.current;
   }
@@ -235,7 +252,17 @@ export class DirectedSessionServiceV1 {
     const sources = resolveDirectedAssetSourcesV1({ sceneId: input.sceneId, manifestItems, allowRemote: input.allowRemote });
     if (!sources.usable) throw new Error("We couldn’t prepare this session. Nothing started.");
     const previous = await this.queryDirectedSession();
-    const generationId = Math.max(1, (previous?.generationId ?? 0) + 1);
+    let aggregateGeneration: number | null = null;
+    try {
+      const aggregate = await NativeMedia.queryState();
+      aggregateGeneration = Number.isFinite(aggregate.generationId) ? aggregate.generationId : null;
+    } catch {
+      aggregateGeneration = null;
+    }
+    // Android's existing aggregate owner fences every classic and directed definition
+    // with one monotonically increasing generation. Allocate above both authorities;
+    // starting at 1 after a retained classic owner was the released Android failure.
+    const generationId = allocateDirectedGenerationV1([previous?.generationId, aggregateGeneration]);
     const sessionId = `directed:${input.sceneId}:${generationId}`;
     const layerIdByAsset = new Map(variant.assets.map((candidate) => [candidate.assetId, `directed:${candidate.assetId}`]));
     const definition: NativeDirectedSessionDefinitionV1 = {
@@ -282,22 +309,44 @@ export class DirectedSessionServiceV1 {
         layerIds: [layerIdByAsset.get(pair.assetIds[0]) ?? pair.assetIds[0], layerIdByAsset.get(pair.assetIds[1]) ?? pair.assetIds[1]],
       })),
     };
-    const created = await NativeMedia.createDirectedSession(definition);
-    if (!finiteNativeState(created) || created.sessionId !== sessionId || created.generationId !== generationId) throw new Error("We couldn’t prepare this session. Nothing started.");
-    await this.acceptNativeState(created);
-    const play: NativeDirectedTransportCommandV1 = {
-      sessionId,
-      generationId,
-      operationId: created.lastAcceptedOperationId + 1,
-      expectedPhaseRevision: created.phaseRevision,
-      expectedPathRevision: created.pathRevision,
-      idempotencyKey: `${sessionId}:play:${created.lastAcceptedOperationId + 1}`,
-      type: "play",
-    };
-    const playing = await NativeMedia.dispatchDirectedSession(play);
-    if (!finiteNativeState(playing)) throw new Error("We couldn’t prepare this session. Nothing started.");
-    await this.acceptNativeState(playing);
-    return playing;
+    let definitionIssued = false;
+    try {
+      definitionIssued = true;
+      const created = await this.acceptAcknowledgedNativeState(
+        await NativeMedia.createDirectedSession(definition),
+        definition,
+        ["preparing"],
+      );
+      const play: NativeDirectedTransportCommandV1 = {
+        sessionId,
+        generationId,
+        operationId: created.lastAcceptedOperationId + 1,
+        expectedPhaseRevision: created.phaseRevision,
+        expectedPathRevision: created.pathRevision,
+        idempotencyKey: `${sessionId}:play:${created.lastAcceptedOperationId + 1}`,
+        type: "play",
+      };
+      const playing = await this.acceptAcknowledgedNativeState(
+        await NativeMedia.dispatchDirectedSession(play),
+        play,
+        ["playing"],
+      );
+      return playing;
+    } catch (error) {
+      if (definitionIssued) {
+        try {
+          await this.stopFailedStartOwner(sessionId, generationId);
+        } catch (cleanupError) {
+          const original = error instanceof Error ? error : new Error(String(error));
+          const combined = new Error("We couldn’t verify that directed playback stopped. Use system media controls to stop Soundscape before trying again.") as Error & { cause?: unknown };
+          combined.cause = Object.freeze({ original, cleanupError });
+          throw combined;
+        }
+      }
+      const reconciled = new Error("We couldn’t prepare this session. Directed playback is not active.") as Error & { cause?: unknown };
+      reconciled.cause = error;
+      throw reconciled;
+    }
   }
 
   async dispatchDirectedSession(type: "play" | "pause" | "resume" | "stop", endedReason?: NativeDirectedTransportCommandV1["endedReason"]): Promise<NativeDirectedSessionStateV1> {
@@ -313,9 +362,8 @@ export class DirectedSessionServiceV1 {
       type,
       ...(endedReason ? { endedReason } : {}),
     };
-    const next = await NativeMedia.dispatchDirectedSession(command);
-    await this.acceptNativeState(next);
-    return next;
+    const expectedTransport: NativeDirectedSessionStateV1["transport"] = type === "pause" ? "paused" : type === "stop" ? "stopped" : "playing";
+    return this.acceptAcknowledgedNativeState(await NativeMedia.dispatchDirectedSession(command), command, [expectedTransport]);
   }
 
   async steerDirectedSession(axis: DirectedSteeringAxisV1, level: 0 | 1 | 2): Promise<NativeDirectedSessionStateV1> {
@@ -375,9 +423,7 @@ export class DirectedSessionServiceV1 {
       expectedPathRevision: state.pathRevision,
       idempotencyKey: `${state.sessionId}:undo:${operationId}`,
     };
-    const next = await NativeMedia.undoDirectedSessionSteering(command);
-    await this.acceptNativeState(next);
-    return next;
+    return this.acceptAcknowledgedNativeState(await NativeMedia.undoDirectedSessionSteering(command), command);
   }
 
   async adjustDirectedSession(layerId: string, change: Readonly<{ enabled?: boolean; trimDb?: -3 | 0 | 3 }>): Promise<NativeDirectedSessionStateV1> {
@@ -393,9 +439,7 @@ export class DirectedSessionServiceV1 {
       layerId,
       ...change,
     };
-    const next = await NativeMedia.adjustDirectedSession(command);
-    await this.acceptNativeState(next);
-    return next;
+    return this.acceptAcknowledgedNativeState(await NativeMedia.adjustDirectedSession(command), command);
   }
 
   async setDirectedSessionOutputProfile(outputProfile: DirectedOutputProfileV1): Promise<NativeDirectedSessionStateV1> {
@@ -410,9 +454,7 @@ export class DirectedSessionServiceV1 {
       idempotencyKey: `${state.sessionId}:profile:${operationId}`,
       outputProfile,
     };
-    const next = await NativeMedia.setDirectedSessionOutputProfile(command);
-    await this.acceptNativeState(next);
-    return next;
+    return this.acceptAcknowledgedNativeState(await NativeMedia.setDirectedSessionOutputProfile(command), command);
   }
 
   async saveCompletedPath(name: string): Promise<SavedDirectedPathV1> {
@@ -489,9 +531,7 @@ export class DirectedSessionServiceV1 {
   }
 
   private async sendSteering(command: NativeDirectedSteeringCommandV1): Promise<NativeDirectedSessionStateV1> {
-    const next = await NativeMedia.steerDirectedSession(command);
-    await this.acceptNativeState(next);
-    return next;
+    return this.acceptAcknowledgedNativeState(await NativeMedia.steerDirectedSession(command), command);
   }
 
   private requireCurrent(): NativeDirectedSessionStateV1 {
@@ -499,10 +539,117 @@ export class DirectedSessionServiceV1 {
     return this.current;
   }
 
-  private async acceptNativeState(state: NativeDirectedSessionStateV1 | null): Promise<void> {
-    this.current = finiteNativeState(state) ? state : null;
-    if (this.current) await AsyncStorage.setItem(DIRECTED_SESSION_STATE_STORAGE_KEY_V1, serializeDirectedCheckpointV1(nativeStateToCheckpoint(this.current)));
-    for (const listener of this.listeners) listener(this.current);
+  private enqueueNativeState(work: () => Promise<void> | void): Promise<void> {
+    const epoch = this.nativeStateEpoch;
+    const next = this.nativeStateAcceptance.then(async () => {
+      if (epoch !== this.nativeStateEpoch) return;
+      await work();
+    });
+    this.nativeStateAcceptance = next.catch(() => undefined);
+    return next;
+  }
+
+  private async acceptNativeState(state: NativeDirectedSessionStateV1 | null): Promise<NativeDirectedSessionStateV1 | null> {
+    if (!finiteNativeState(state)) return this.current;
+    await this.enqueueNativeState(async () => {
+      const previous = this.current;
+      if (!shouldAcceptDirectedProjectionV1(previous, state)) return;
+      this.current = state;
+      for (const listener of this.listeners) listener(state);
+      if (!shouldPersistDirectedProjectionV1(this.lastPersistedNativeState, state)) return;
+      try {
+        await AsyncStorage.setItem(DIRECTED_SESSION_STATE_STORAGE_KEY_V1, serializeDirectedCheckpointV1(nativeStateToCheckpoint(state)));
+        this.lastPersistedNativeState = state;
+      } catch {
+        // Native state and listeners remain authoritative. Because the persisted fence is not
+        // advanced, the next accepted projection retries this checkpoint instead of publishing
+        // a preparation failure after native playback has already started.
+      }
+    });
+    return this.current;
+  }
+
+  private clearExactLocalOwner(sessionId: string, generationId: number): Promise<void> {
+    return this.enqueueNativeState(() => {
+      if (this.current?.sessionId !== sessionId || this.current.generationId !== generationId) return;
+      this.current = null;
+      for (const listener of this.listeners) listener(null);
+    });
+  }
+
+  private async acceptAcknowledgedNativeState(
+    state: NativeDirectedSessionStateV1 | null,
+    command: NativeDirectedCommandFenceV1,
+    expectedTransports?: readonly NativeDirectedSessionStateV1["transport"][],
+  ): Promise<NativeDirectedSessionStateV1> {
+    const acknowledgement = state?.lastAcknowledgement;
+    if (
+      !finiteNativeState(state)
+      || state.sessionId !== command.sessionId
+      || state.generationId !== command.generationId
+      || state.operationId !== command.operationId
+      || state.lastAcceptedOperationId !== command.operationId
+      || acknowledgement?.status !== "accepted"
+      || acknowledgement.operationId !== command.operationId
+      || acknowledgement.idempotencyKey !== command.idempotencyKey
+      || (expectedTransports && !expectedTransports.includes(state.transport))
+    ) throw new Error("DIRECTED_NATIVE_ACKNOWLEDGEMENT_MISMATCH");
+    await this.acceptNativeState(state);
+    const aggregate = await NativeMedia.queryState();
+    if (
+      aggregate.sessionType !== "directed"
+      || aggregate.sessionId !== command.sessionId
+      || aggregate.generationId !== command.generationId
+      || aggregate.operationId !== command.operationId
+    ) throw new Error("DIRECTED_NATIVE_OWNER_MISMATCH");
+    const current = this.current;
+    const currentAcknowledgement = current?.lastAcknowledgement;
+    if (
+      !finiteNativeState(current)
+      || current.sessionId !== command.sessionId
+      || current.generationId !== command.generationId
+      || current.operationId !== command.operationId
+      || current.lastAcceptedOperationId !== command.operationId
+      || currentAcknowledgement?.status !== "accepted"
+      || currentAcknowledgement.operationId !== command.operationId
+      || currentAcknowledgement.idempotencyKey !== command.idempotencyKey
+      || (expectedTransports && !expectedTransports.includes(current.transport))
+    ) throw new Error("DIRECTED_NATIVE_CURRENTNESS_MISMATCH");
+    return current;
+  }
+
+  private async stopFailedStartOwner(sessionId: string, generationId: number): Promise<void> {
+    const state = await NativeMedia.getDirectedSessionState();
+    if (!finiteNativeState(state) || state.sessionId !== sessionId || state.generationId !== generationId) {
+      const aggregate = await NativeMedia.queryState();
+      if (aggregate.sessionType === "directed" && aggregate.sessionId === sessionId && aggregate.generationId === generationId) {
+        throw new Error("FAILED_START_OWNER_STATE_UNAVAILABLE");
+      }
+      await this.clearExactLocalOwner(sessionId, generationId);
+      return;
+    }
+    if (["completed", "failed", "stopped"].includes(state.transport)) {
+      await this.acceptNativeState(state);
+      return;
+    }
+    const operationId = state.lastAcceptedOperationId + 1;
+    const command: NativeDirectedTransportCommandV1 = {
+      sessionId,
+      generationId,
+      operationId,
+      expectedPhaseRevision: state.phaseRevision,
+      expectedPathRevision: state.pathRevision,
+      idempotencyKey: `${sessionId}:rollback:${operationId}`,
+      type: "stop",
+      endedReason: "scheduler-failed",
+    };
+    try {
+      await this.acceptAcknowledgedNativeState(await NativeMedia.dispatchDirectedSession(command), command, ["stopped"]);
+    } catch (error) {
+      const rollback = new Error("FAILED_START_ROLLBACK_NOT_ACKNOWLEDGED") as Error & { cause?: unknown };
+      rollback.cause = error;
+      throw rollback;
+    }
   }
 
   private async getOfflineManager(): Promise<OfflineDownloadManager> {
