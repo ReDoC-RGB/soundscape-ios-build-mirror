@@ -1,9 +1,9 @@
 const UNBOUND_SOURCE_COMMIT = "0000000000000000000000000000000000000000";
 const RELEASE = Object.freeze({
-  label: "Alpha 0.14.4",
-  displayLabel: "Alpha 0.14.4 — Directed Sessions Native Activation and Saved Routes Fix",
-  codename: "directed-sessions-native-activation-saved-routes-fix-v1",
-  internalLabel: "Alpha 0.14.4+directed-sessions-native-activation-saved-routes-fix-v1",
+  label: "Alpha 0.14.9",
+  displayLabel: "Alpha 0.14.9 — Classic Navigation Ownership Correction",
+  codename: "classic-navigation-ownership-correction-v1",
+  internalLabel: "Alpha 0.14.9+classic-navigation-ownership-correction-v1",
 });
 
 module.exports = ({ config }) => {

@@ -59,9 +59,10 @@ import {
 } from "./src/directedSessions/releaseGateV1";
 import {
   createSavedDestinationIntentV1,
-  shouldApplySavedDestinationIntentV1,
+  planSavedDestinationApplicationV1,
   type SavedDestinationIntentV1,
 } from "./src/navigation/savedDestinationIntentV1";
+import { planClassicNavigationSurfaceV1, planClassicPlayerOpenV1 } from "./src/navigation/classicNavigationOwnershipV1";
 
 const mobileCatalogSounds: MobileCatalogSound[] = [
   ...baselineMobileCatalogSounds,
@@ -70,8 +71,6 @@ const mobileCatalogSounds: MobileCatalogSound[] = [
 const mobileCatalogLanes: string[] = Array.from(new Set(mobileCatalogSounds.map((sound) => sound.lane)));
 import {
   getPreparedColdStartUri,
-  isColdStartStarterSound,
-  prepareColdStartSound,
   type ColdStartCacheEvent,
 } from "./src/coldStartAudioCache";
 import {
@@ -133,7 +132,6 @@ import {
   type LayerOfflineOperationOwnerV1,
 } from "./src/layerOfflineProjectionV1";
 import {
-  canReachRemoteMediaSourceV1,
   expoOfflineFilePortV1,
   expoOfflineNetworkPortV1,
   pickLocalBackupTextV1,
@@ -219,6 +217,7 @@ import {
   type BuilderPlayableDefinition,
 } from "./src/playback/builderAtomicEditCoordinator";
 import { runSinglePreviewStart } from "./src/playback/singlePreviewStartCoordinator";
+import { resolveClassicPlaybackSourceV1 } from "./src/playback/classicPlaybackSourceV1";
 import { teardownResourcesConcurrently } from "./src/sessionReplacement";
 import { runOperationScopedCleanup } from "./src/playback/operationScopedCleanup";
 import { RecipeDerivationCoordinator } from "./src/recipeDerivation";
@@ -355,11 +354,11 @@ const playbackTraceDisplayRefreshMillis = 250;
 const playbackTraceEventLoopGapThresholdMillis = 250;
 const sessionReplacementFadeMillis = 120;
 const appIterationInfo = {
-  label: "Alpha 0.14.4",
-  displayLabel: "Alpha 0.14.4 — Directed Sessions Native Activation and Saved Routes Fix",
-  currentUpdate: "Alpha 0.14.4 — Directed Sessions Native Activation and Saved Routes Fix",
-  codename: "directed-sessions-native-activation-saved-routes-fix-v1",
-  fullInternalLabel: "Alpha 0.14.4+directed-sessions-native-activation-saved-routes-fix-v1",
+  label: "Alpha 0.14.9",
+  displayLabel: "Alpha 0.14.9 — Classic Navigation Ownership Correction",
+  currentUpdate: "Alpha 0.14.9 — Classic Navigation Ownership Correction",
+  codename: "classic-navigation-ownership-correction-v1",
+  fullInternalLabel: "Alpha 0.14.9+classic-navigation-ownership-correction-v1",
   acceptedNativeBaseline: {
     label: "Alpha 0.11.7",
     displayLabel: "Alpha 0.11.7 — Single Preview Selection-Ready Fix",
@@ -1124,6 +1123,9 @@ type SoundscapeAppProps = Readonly<{
   initialSectionKey?: MobileSectionKey;
   initialSavedAreaTab?: SavedAreaTab;
   initialSettingsOpen?: boolean;
+  surfaceVisible?: boolean;
+  directedClassicRoute?: DirectedClassicRouteV1 | null;
+  onOpenRetainedClassicPlayer?: () => void;
   directedModeBack?: () => void;
   directedModeBackLabel?: string;
   savedDestinationIntent?: SavedDestinationIntentV1 | null;
@@ -1134,6 +1136,9 @@ function SoundscapeApp({
   initialSectionKey = "fast-start",
   initialSavedAreaTab = "sessions",
   initialSettingsOpen = false,
+  surfaceVisible = true,
+  directedClassicRoute = null,
+  onOpenRetainedClassicPlayer,
   directedModeBack,
   directedModeBackLabel = "Back to Sessions",
   savedDestinationIntent = null,
@@ -1185,6 +1190,8 @@ function SoundscapeApp({
   const scrollViewRef = useRef<FlatList<BrowseListItem> | null>(null);
   const savedDestinationRevisionRef = useRef(savedDestinationIntent?.requestId ?? 0);
   const consumedSavedDestinationRequestRef = useRef<number | null>(null);
+  const pendingSavedDestinationRequestRef = useRef<number | null>(null);
+  const savedAreaContainerLayoutYRef = useRef<number | null>(null);
   const savedDestinationLayoutYRef = useRef<Record<SavedAreaTab, number | null>>({ sessions: null, sounds: null });
   const savedMixesDestinationRef = useRef<View | null>(null);
   const savedSoundsDestinationRef = useRef<View | null>(null);
@@ -1430,6 +1437,7 @@ function SoundscapeApp({
   const [sessionStopPhase, setSessionStopPhase] = useState<SessionStopPhase>("idle");
   const [mediaNotificationPermission, setMediaNotificationPermission] =
     useState<MediaNotificationPermissionState | null>(null);
+  const [aggregateSessionType, setAggregateSessionType] = useState<"single" | "layered" | "directed" | null>(null);
   const nativeReconciledSessionIdRef = useRef<string | null>(null);
   const startTabPreferenceAppliedRef = useRef(Boolean(directedModeBack));
   const timerEndsAtMillisRef = useRef<number | null>(null);
@@ -2506,7 +2514,21 @@ function SoundscapeApp({
     let mounted = true;
     const unsubscribe = audioService.subscribe((nativeState) => {
       if (!mounted) return;
+      setAggregateSessionType(nativeState.sessionType);
       setMediaNotificationPermission(audioService.notificationPermissionState());
+      if (nativeState.sessionType === "directed") {
+        // A newer Directed owner truthfully supersedes classic handles. Clear only
+        // the stale view projection; native generation fencing makes stale handles inert.
+        soundRef.current = null;
+        setSound(null);
+        setLoadedSingleSoundId(null);
+        layeredSoundsRef.current = [];
+        setCurrentSession(null);
+        setIsPlaying(false);
+        layeredPreviewStatusRef.current = "idle";
+        setLayeredPreviewStatus("idle");
+        return;
+      }
       const timerRemaining = audioService.nativeTimerRemainingMillis(nativeState);
       if (nativeState.timerDeadlineElapsedRealtimeMs) {
         timerEndsAtMillisRef.current = Date.now() + timerRemaining;
@@ -3578,20 +3600,6 @@ function SoundscapeApp({
       sound: catalogSound,
       command: "fast-start-result",
     });
-    if (isColdStartStarterSound(catalogSound.id)) {
-      recordPlaybackTimingTrace("cold start preparation scheduled", {
-        sound: catalogSound,
-        command: "cold-prepare",
-      });
-      void prepareColdStartSound(catalogSound, (event) => recordColdStartCacheEvent(catalogSound, event))
-        .catch((preparationError: unknown) => {
-          recordPlaybackTimingTrace("cold start preparation failed", {
-            sound: catalogSound,
-            command: "cold-prepare",
-            error: preparationError,
-          });
-        });
-    }
     setError(null);
     setFastStartStartFailedSoundId(null);
     setSelectedPreset(null);
@@ -4950,6 +4958,25 @@ function SoundscapeApp({
     setActiveSectionKey(sectionKey);
   };
 
+  useEffect(() => {
+    if (!directedClassicRoute) return;
+    startTabPreferenceAppliedRef.current = true;
+    if (directedClassicRoute === "saved-mixes" || directedClassicRoute === "saved-sounds") {
+      setSettingsOpen(false);
+      return;
+    }
+    setSettingsOpen(directedClassicRoute === "settings");
+    const section: MobileSectionKey = directedClassicRoute === "player"
+      ? "player"
+      : directedClassicRoute === "browse"
+        ? "browse"
+        : directedClassicRoute === "presets"
+          ? "presets"
+          : "fast-start";
+    setActiveSection(section);
+    requestAnimationFrame(() => scrollViewRef.current?.scrollToOffset({ offset: 0, animated: false }));
+  }, [directedClassicRoute]);
+
   const invalidateSavedDestinationIntent = useCallback(() => {
     const requestId = savedDestinationIntent?.requestId;
     savedDestinationRevisionRef.current += 1;
@@ -4960,44 +4987,68 @@ function SoundscapeApp({
   }, [onSavedDestinationConsumed, savedDestinationIntent?.requestId]);
 
   const consumeSavedDestinationIntent = useCallback((intent: SavedDestinationIntentV1) => {
-    consumedSavedDestinationRequestRef.current = intent.requestId;
+    if (savedDestinationRevisionRef.current !== intent.requestId) return false;
     const target = intent.tab === "sessions" ? savedMixesDestinationRef.current : savedSoundsDestinationRef.current;
     const targetHandle = target ? findNodeHandle(target) : null;
-    if (targetHandle) AccessibilityInfo.setAccessibilityFocus(targetHandle);
+    if (!targetHandle) return false;
+    AccessibilityInfo.setAccessibilityFocus(targetHandle);
     AccessibilityInfo.announceForAccessibility(`${intent.label}. Destination reached.`);
+    consumedSavedDestinationRequestRef.current = intent.requestId;
+    pendingSavedDestinationRequestRef.current = null;
     onSavedDestinationConsumed?.(intent.requestId);
+    return true;
   }, [onSavedDestinationConsumed]);
 
   useEffect(() => {
     if (!savedDestinationIntent) return;
     savedDestinationRevisionRef.current = savedDestinationIntent.requestId;
     consumedSavedDestinationRequestRef.current = null;
-    if (savedAreaTab !== savedDestinationIntent.tab) setSavedAreaTab(savedDestinationIntent.tab);
+    pendingSavedDestinationRequestRef.current = null;
+    startTabPreferenceAppliedRef.current = true;
+    setSettingsOpen(false);
+    const plan = planSavedDestinationApplicationV1(savedDestinationIntent, {
+      currentRequestId: savedDestinationIntent.requestId,
+      consumedRequestId: null,
+      activeSectionKey: activeSectionKeyRef.current,
+      activeTab: savedAreaTab,
+      containerLayoutY: savedAreaContainerLayoutYRef.current,
+      headingLayoutY: savedDestinationLayoutYRef.current[savedDestinationIntent.tab],
+    });
+    if (plan?.needsSectionSelection) setActiveSection("player");
+    if (plan?.needsTabSelection) setSavedAreaTab(plan.tab);
   }, [savedDestinationIntent?.requestId, savedDestinationIntent?.tab]);
 
   useEffect(() => () => {
     savedDestinationRevisionRef.current += 1;
     consumedSavedDestinationRequestRef.current = savedDestinationIntent?.requestId ?? consumedSavedDestinationRequestRef.current;
+    pendingSavedDestinationRequestRef.current = null;
   }, [savedDestinationIntent?.requestId]);
 
   useEffect(() => {
     if (!localStorageReady || !savedSessionsStorageReady) return;
-    if (!shouldApplySavedDestinationIntentV1(
-      savedDestinationIntent,
-      savedDestinationRevisionRef.current,
-      consumedSavedDestinationRequestRef.current,
+    const plan = planSavedDestinationApplicationV1(savedDestinationIntent, {
+      currentRequestId: savedDestinationRevisionRef.current,
+      consumedRequestId: consumedSavedDestinationRequestRef.current,
       activeSectionKey,
-    )) return;
-    if (savedAreaTab !== savedDestinationIntent.tab) return;
-    const layoutY = savedDestinationLayoutYRef.current[savedDestinationIntent.tab];
-    if (layoutY === null) return;
+      activeTab: savedAreaTab,
+      containerLayoutY: savedAreaContainerLayoutYRef.current,
+      headingLayoutY: savedDestinationIntent ? savedDestinationLayoutYRef.current[savedDestinationIntent.tab] : null,
+    });
+    if (!savedDestinationIntent || !plan?.ready || plan.scrollOffset === null) return;
+    if (pendingSavedDestinationRequestRef.current === plan.requestId) return;
     const intent = savedDestinationIntent;
-    consumedSavedDestinationRequestRef.current = intent.requestId;
+    const scrollOffset = plan.scrollOffset;
+    pendingSavedDestinationRequestRef.current = intent.requestId;
     requestAnimationFrame(() => {
-      if (savedDestinationRevisionRef.current !== intent.requestId) return;
-      scrollViewRef.current?.scrollToOffset({ offset: Math.max(0, layoutY - 12), animated: false });
+      if (savedDestinationRevisionRef.current !== intent.requestId) {
+        if (pendingSavedDestinationRequestRef.current === intent.requestId) pendingSavedDestinationRequestRef.current = null;
+        return;
+      }
+      scrollViewRef.current?.scrollToOffset({ offset: scrollOffset, animated: false });
       requestAnimationFrame(() => {
-        if (savedDestinationRevisionRef.current === intent.requestId) consumeSavedDestinationIntent(intent);
+        if (savedDestinationRevisionRef.current !== intent.requestId || !consumeSavedDestinationIntent(intent)) {
+          if (pendingSavedDestinationRequestRef.current === intent.requestId) pendingSavedDestinationRequestRef.current = null;
+        }
       });
     });
   }, [
@@ -5019,7 +5070,11 @@ function SoundscapeApp({
     scrollViewRef.current?.scrollToOffset({ offset: 0, animated: false });
   };
 
-  const handleOpenPlayer = () => handleSectionJump("player");
+  const handleOpenPlayer = () => {
+    const action = planClassicPlayerOpenV1(surfaceVisible);
+    if (action.revealRetainedSurface) onOpenRetainedClassicPlayer?.();
+    handleSectionJump(action.section);
+  };
 
   const handleToggleBrowseFilter = (groupKey: BrowseFilterGroupKey, optionKey: BrowseFilterKey) => {
     const optionIsAlreadyActive = browseFilters[groupKey].includes(optionKey);
@@ -6539,36 +6594,46 @@ function SoundscapeApp({
 
   async function preparePreferredPlaybackUri(catalogSound: MobileCatalogSound): Promise<string> {
     const descriptor = getM7OfflineAssetDescriptor(catalogSound.id);
-    if (descriptor) {
-      const localResolution = await offlineManagerRef.current.resolveVerifiedLocal({
-        assetId: descriptor.assetId,
-        remoteUri: descriptor.remoteUri,
-        catalogRevision: descriptor.catalogRevision,
-        sourceRevision: descriptor.sourceRevision,
-        expectedBytes: descriptor.expectedBytes,
-        checksumSha256: descriptor.checksumSha256,
-        mediaType: descriptor.mediaType,
-        fileExtension: descriptor.fileExtension,
-      }, new Date().toISOString());
-      publishOfflineManagerState();
-      if (localResolution.state === "local") return localResolution.uri;
-      if (localResolution.state === "unusable" || localResolution.state === "revoked") {
-        throw new OfflinePlaybackPreparationErrorV1(
-          "OFFLINE_COPY_UNUSABLE",
-          appPlaybackCopyV1.offlineCopyUnusable,
-          `${catalogSound.id}: ${localResolution.reason}`,
-        );
-      }
-    }
-
-    if (!await canReachRemoteMediaSourceV1(catalogSound.audioUrl)) {
+    recordPlaybackTimingTrace("CLASSIC_SOURCE_RESOLUTION_ENTER", {
+      sound: catalogSound,
+      command: "classic-source-resolution",
+    });
+    const resolution = await resolveClassicPlaybackSourceV1({
+      sound: catalogSound,
+      offlineDescriptorPresent: Boolean(descriptor),
+      resolveVerifiedLocal: async () => {
+        if (!descriptor) return { state: "not-downloaded" } as const;
+        const localResolution = await offlineManagerRef.current.resolveVerifiedLocal({
+          assetId: descriptor.assetId,
+          remoteUri: descriptor.remoteUri,
+          catalogRevision: descriptor.catalogRevision,
+          sourceRevision: descriptor.sourceRevision,
+          expectedBytes: descriptor.expectedBytes,
+          checksumSha256: descriptor.checksumSha256,
+          mediaType: descriptor.mediaType,
+          fileExtension: descriptor.fileExtension,
+        }, new Date().toISOString());
+        publishOfflineManagerState();
+        return localResolution;
+      },
+      getPreparedCacheUri: () => getPreparedColdStartUri(catalogSound.id),
+      onStage: (stage) => recordPlaybackTimingTrace(
+        `CLASSIC_SOURCE_RESOLUTION_STAGE stage=${stage}`,
+        { sound: catalogSound, command: "classic-source-resolution" },
+      ),
+    });
+    if (resolution.state === "blocked") {
       throw new OfflinePlaybackPreparationErrorV1(
-        "NOT_DOWNLOADED",
-        appPlaybackCopyV1.notDownloaded,
-        `${catalogSound.id}: no verified local source exists and the remote media host is unreachable.`,
+        "OFFLINE_COPY_UNUSABLE",
+        appPlaybackCopyV1.offlineCopyUnusable,
+        `${catalogSound.id}: ${resolution.reason}`,
       );
     }
-    return prepareColdStartSound(catalogSound, (event) => recordColdStartCacheEvent(catalogSound, event));
+    recordPlaybackTimingTrace(
+      `CLASSIC_PLAYER_PREPARATION_URI_READY authority=${resolution.authority}`,
+      { sound: catalogSound, command: "classic-source-resolution" },
+    );
+    return resolution.uri;
   }
 
   const activeOfflineAssetIds = () => {
@@ -7953,7 +8018,11 @@ function SoundscapeApp({
   }
 
   return (
-    <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
+    <SafeAreaView
+      edges={["top", "left", "right"]}
+      pointerEvents={surfaceVisible ? "auto" : "box-none"}
+      style={surfaceVisible ? styles.safeArea : styles.classicNavigationOwnerOverlay}
+    >
       <FlatList
         ref={scrollViewRef}
         data={browseSectionIsActive ? browseListItems : []}
@@ -7964,6 +8033,7 @@ function SoundscapeApp({
         updateCellsBatchingPeriod={40}
         windowSize={7}
         removeClippedSubviews={Platform.OS === "android"}
+        style={surfaceVisible ? undefined : styles.classicNavigationOwnedViewHidden}
         contentContainerStyle={[
           styles.container,
           { paddingBottom: shellContentBottomReservation },
@@ -9421,7 +9491,15 @@ function SoundscapeApp({
         ) : null}
 
         {!settingsOpen && activeSectionKey === "player" ? (
-        <View style={styles.localLibraryCard}>
+        <View
+          onLayout={(event) => {
+            const nextY = event.nativeEvent.layout.y;
+            if (savedAreaContainerLayoutYRef.current === nextY) return;
+            savedAreaContainerLayoutYRef.current = nextY;
+            setSavedDestinationLayoutRevision((current) => current + 1);
+          }}
+          style={styles.localLibraryCard}
+        >
           <Text style={styles.localLibraryEyebrow}>Saved area</Text>
           <Text style={styles.localLibraryDescription}>Saved on this device. Saved sounds are bookmarks; saved mixes restore your soundscape.</Text>
           <View accessibilityLabel="Saved area tabs" style={styles.savedAreaTabRow}>
@@ -9873,7 +9951,7 @@ function SoundscapeApp({
         )}
       />
 
-      {transientNotification ? (
+      {surfaceVisible && transientNotification ? (
         <View
           pointerEvents="none"
           style={[
@@ -9892,7 +9970,7 @@ function SoundscapeApp({
         </View>
       ) : null}
 
-      {currentSession ? (
+      {currentSession && aggregateSessionType !== "directed" ? (
         <View
           onLayout={handleMiniPlayerLayout}
           style={[styles.miniPlayer, { bottom: bottomNavigationHeight }]}
@@ -9996,7 +10074,7 @@ function SoundscapeApp({
         </View>
       ) : null}
 
-      <SafeAreaView
+      {surfaceVisible ? <SafeAreaView
         edges={["bottom", "left", "right"]}
         onLayout={handleBottomNavigationLayout}
         style={styles.persistentSectionNavSafeArea}
@@ -10029,9 +10107,9 @@ function SoundscapeApp({
             );
           })}
         </View>
-      </SafeAreaView>
+      </SafeAreaView> : null}
 
-      <StatusBar style="light" />
+      {surfaceVisible ? <StatusBar style="light" /> : null}
     </SafeAreaView>
   );
 }
@@ -10067,9 +10145,11 @@ class SoundscapeErrorBoundary extends React.Component<React.PropsWithChildren, {
 export default function App() {
   const [classicRoute, setClassicRoute] = useState<DirectedClassicRouteV1 | null>(null);
   const [classicReturnTab, setClassicReturnTab] = useState<DirectedTabV1>("sessions");
+  const [classicEverMounted, setClassicEverMounted] = useState(!directedSessionsBetaV1);
   const savedDestinationRequestRef = useRef(0);
   const [savedDestinationIntent, setSavedDestinationIntent] = useState<SavedDestinationIntentV1 | null>(null);
   const openClassicRoute = (route: DirectedClassicRouteV1, returnTab: DirectedTabV1) => {
+    setClassicEverMounted(true);
     setClassicReturnTab(returnTab);
     if (route === "saved-mixes" || route === "saved-sounds") {
       const requestId = savedDestinationRequestRef.current + 1;
@@ -10087,32 +10167,32 @@ export default function App() {
     setSavedDestinationIntent(null);
     setClassicRoute(null);
   };
-  const showClassic = !directedSessionsBetaV1 || classicRoute !== null;
-  const classicSection: MobileSectionKey = classicRoute === "browse"
-    ? "browse"
-    : classicRoute === "presets"
-      ? "presets"
-      : classicRoute === "saved-mixes" || classicRoute === "saved-sounds"
-        ? "player"
-        : "fast-start";
-  const classicSavedAreaTab: SavedAreaTab = classicRoute === "saved-sounds" ? "sounds" : "sessions";
+  const navigationSurface = planClassicNavigationSurfaceV1({
+    directedEnabled: directedSessionsBetaV1,
+    classicEverMounted,
+    classicRoute,
+  });
   return (
     <SafeAreaProvider>
       <SoundscapeErrorBoundary>
-        {showClassic ? (
+        {navigationSurface.directedVisible ? (
+          <DirectedSessionsExperienceV1 initialTab={classicReturnTab} onOpenClassicLibraryRoute={openClassicRoute} />
+        ) : null}
+        {navigationSurface.mountClassic ? (
           <SoundscapeApp
-            key={`classic-${classicRoute ?? "accepted"}`}
-            initialSectionKey={classicSection}
-            initialSavedAreaTab={classicSavedAreaTab}
+            key="classic"
+            initialSectionKey={navigationSurface.section}
+            initialSavedAreaTab={navigationSurface.savedTab}
             initialSettingsOpen={classicRoute === "settings"}
+            surfaceVisible={navigationSurface.classicVisible}
+            directedClassicRoute={classicRoute}
+            onOpenRetainedClassicPlayer={() => openClassicRoute("player", classicReturnTab)}
             directedModeBack={directedSessionsBetaV1 ? returnToDirectedSessions : undefined}
             directedModeBackLabel={`Back to ${classicReturnTab === "sessions" ? "Sessions" : classicReturnTab === "library" ? "Library" : "Saved"}`}
             savedDestinationIntent={savedDestinationIntent}
             onSavedDestinationConsumed={handleSavedDestinationConsumed}
           />
-        ) : (
-          <DirectedSessionsExperienceV1 initialTab={classicReturnTab} onOpenClassicLibraryRoute={openClassicRoute} />
-        )}
+        ) : null}
       </SoundscapeErrorBoundary>
     </SafeAreaProvider>
   );
@@ -11296,6 +11376,14 @@ const visualTheme = {
 } as const;
 
 const styles = StyleSheet.create({
+  classicNavigationOwnerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "transparent",
+    zIndex: 20,
+  },
+  classicNavigationOwnedViewHidden: {
+    display: "none",
+  },
   safeArea: {
     flex: 1,
     backgroundColor: visualTheme.background,

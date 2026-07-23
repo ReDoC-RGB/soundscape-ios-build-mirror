@@ -123,10 +123,13 @@ export const expoOfflineNetworkPortV1: OfflineNetworkPortV1 = Object.freeze({
   },
 });
 
-export async function canReachRemoteMediaSourceV1(remoteUri: string): Promise<boolean> {
+export async function canReachRemoteMediaSourceV1(
+  remoteUri: string,
+  signal?: AbortSignal,
+): Promise<boolean> {
   try {
-    await fetch(remoteUri, { method: "HEAD" });
-    return true;
+    const response = await fetch(remoteUri, { method: "HEAD", signal });
+    return response.ok;
   } catch {
     return false;
   }

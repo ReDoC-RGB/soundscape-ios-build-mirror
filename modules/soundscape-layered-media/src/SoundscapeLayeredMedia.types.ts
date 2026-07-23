@@ -190,6 +190,24 @@ export type NativeDirectedAcknowledgementV1 = {
   safeCheckpointWithinMs: number;
 };
 
+export type NativeDirectedActivationDiagnosticV1 = {
+  stage: string;
+  code: string;
+  activationTrace?: {
+    schema: 'soundscape-directed-activation-trace-v1';
+    status: 'empty' | 'current' | 'stale';
+    traceToken?: number;
+    requestKind?: string;
+    startedAtMonotonicMs?: number;
+    entries: Array<{
+      atMonotonicMs: number;
+      stage: string;
+      code: string;
+      exceptionClass: string | null;
+    }>;
+  };
+};
+
 export type NativeDirectedPendingSteeringV1 = {
   axis: 'softer' | 'sparser' | 'closer' | 'steadier' | 'different-texture';
   level: 0 | 1 | 2 | null;
@@ -292,4 +310,9 @@ export interface SoundscapeLayeredMediaNativeModule {
   adjustDirectedSession(command: NativeDirectedAdjustCommandV1): Promise<NativeDirectedSessionStateV1>;
   setDirectedSessionOutputProfile(command: NativeDirectedOutputProfileCommandV1): Promise<NativeDirectedSessionStateV1>;
   getDirectedSessionState(): Promise<NativeDirectedSessionStateV1 | null>;
+  beginDirectedActivationTrace(stage: string, classification: string): number;
+  recordDirectedActivationStage(stage: string, classification: string, diagnosticCode: string | null, exceptionClass: string | null): void;
+  recordDirectedActivationProjection(stage: string, outcome: string, code: string, exceptionClass: string | null): void;
+  clearDirectedActivationTrace(): void;
+  getDirectedActivationDiagnostic(): Promise<NativeDirectedActivationDiagnosticV1>;
 }

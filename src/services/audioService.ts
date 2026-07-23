@@ -10,6 +10,7 @@ import type {
 } from "../../modules/soundscape-layered-media";
 import { assertNoUndefinedNativePayload, buildNativeSessionDefinition } from "../../modules/soundscape-layered-media/src/nativePayload";
 import { SoundscapeDomainError } from "../contracts/domainErrors";
+import { classifyAggregateProjectionAcceptanceV1 } from "../navigation/classicNavigationOwnershipV1";
 
 const NOTIFICATION_PERMISSION_ASKED_KEY = "soundscape.media-notification-permission-asked.v1";
 export type MediaNotificationPermissionState = NativeNotificationPermissionState;
@@ -318,7 +319,24 @@ export class AudioService {
     // Android startService returns the last published snapshot before onStartCommand processes the new intent.
     // Never let that stale bridge return clear or regress the JavaScript projection while native owns a command.
     if (this.activeOwner && !event.sessionId) return;
-    if (this.activeOwner && event.sessionId && !this.sameNativeOwner(event, this.activeOwner)) return;
+    if (event.sessionId) {
+      const projectionClassification = classifyAggregateProjectionAcceptanceV1(
+        this.activeOwner
+          ? { sessionId: this.activeOwner.sessionId, generation: this.activeOwner.generation }
+          : null,
+        this.state?.sessionId
+          ? { sessionId: this.state.sessionId, generation: this.state.generationId }
+          : null,
+        { sessionId: event.sessionId, generation: event.generationId },
+      );
+      if (projectionClassification === "stale-or-unrelated-owner") return;
+      // A newer classic/directed definition is the one truthful aggregate owner.
+      // Detach stale managed listeners without issuing a second native teardown.
+      if (projectionClassification === "newer-owner-replacement" && this.activeOwner) {
+        this.activeOwner = null;
+        this.statusListeners.clear();
+      }
+    }
     if (this.activeOwner && event.operationId < this.activeOwner.operationId) return;
     if (event.eventId <= this.lastEventId && event.sessionId === this.state?.sessionId) return;
     this.lastEventId = Math.max(this.lastEventId, event.eventId);

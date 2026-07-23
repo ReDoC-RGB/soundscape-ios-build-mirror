@@ -40,10 +40,16 @@ import {
   type DirectedSessionStateV1,
   type SavedDirectedPathV1,
 } from "./sessionStateV1";
+import {
+  createDirectedReadinessCoordinatorV1,
+  projectDirectedRemoteFreshnessAvailabilityV1,
+  type DirectedRemoteFreshnessStatusV1,
+} from "./readinessCoordinatorV1";
 
-export type DirectedClassicRouteV1 = "fast-start" | "browse" | "presets" | "saved-mixes" | "saved-sounds" | "settings";
+export type DirectedClassicRouteV1 = "fast-start" | "browse" | "presets" | "player" | "saved-mixes" | "saved-sounds" | "settings";
 export type DirectedTabV1 = "sessions" | "library" | "saved";
 type DirectedScreenV1 = "root" | "detail" | "player" | "adjust" | "completion" | "ended" | "failure";
+type DirectedRemoteFreshnessUiV1 = "idle" | "checking" | DirectedRemoteFreshnessStatusV1;
 
 export const directedNavigationV1: readonly Readonly<{ key: DirectedTabV1; label: string }>[] = [
   { key: "sessions", label: "Sessions" },
@@ -64,6 +70,8 @@ const initialAvailability = (sceneId: DirectedSceneIdV1): DirectedAvailabilityPr
   missingAssetIds: [],
   corruptAssetIds: [],
 });
+
+const DIRECTED_SCENE_IDS_V1 = Object.freeze(directedSceneScoresV1.map((score) => score.sceneId));
 
 const palette = Object.freeze({
   linen: "#F5F0E8",
@@ -422,6 +430,11 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
     "porcelain-table-v1": initialAvailability("porcelain-table-v1"),
     "soft-wardrobe-v1": initialAvailability("soft-wardrobe-v1"),
   });
+  const [remoteFreshness, setRemoteFreshness] = useState<Record<DirectedSceneIdV1, DirectedRemoteFreshnessUiV1>>({
+    "rain-desk-v1": "idle",
+    "porcelain-table-v1": "idle",
+    "soft-wardrobe-v1": "idle",
+  });
   const [nativeState, setNativeState] = useState<NativeDirectedSessionStateV1 | null>(null);
   const [checkpoint, setCheckpoint] = useState<DirectedSessionStateV1 | null>(null);
   const [savedPaths, setSavedPaths] = useState<SavedDirectedPathV1[]>([]);
@@ -437,18 +450,44 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
   const projectionInFlight = useRef<Promise<NativeDirectedSessionStateV1 | null> | null>(null);
   const mountedRef = useRef(false);
   const lifecycleEpochRef = useRef(0);
+  const availabilityRequestIdRef = useRef(0);
+  const readinessCoordinator = useMemo(() => createDirectedReadinessCoordinatorV1({
+    loadStable: () => directedSessionServiceV1.getStableAvailabilities(DIRECTED_SCENE_IDS_V1),
+    probeRemote: canReachRemoteMediaSourceV1,
+  }), []);
 
   const refreshAvailability = useCallback(async () => {
     const lifecycleEpoch = lifecycleEpochRef.current;
+    const requestId = ++availabilityRequestIdRef.current;
     const capability = await directedSessionServiceV1.refreshCapability();
-    if (!mountedRef.current || lifecycleEpochRef.current !== lifecycleEpoch) return;
+    if (!mountedRef.current || lifecycleEpochRef.current !== lifecycleEpoch || availabilityRequestIdRef.current !== requestId) return;
     setCapabilityReady(capability === 1);
-    const rows = await Promise.all(directedSceneScoresV1.map(async (score) => {
-      const online = score.productionEligible ? await canReachRemoteMediaSourceV1(score.assets[0].sourceUri) : true;
-      return [score.sceneId, await directedSessionServiceV1.getAvailability(score.sceneId, online)] as const;
-    }));
-    if (mountedRef.current && lifecycleEpochRef.current === lifecycleEpoch) setAvailability(Object.fromEntries(rows) as Record<DirectedSceneIdV1, DirectedAvailabilityProjectionV1>);
-  }, []);
+    if (capability !== 1) {
+      setRemoteFreshness({ "rain-desk-v1": "idle", "porcelain-table-v1": "idle", "soft-wardrobe-v1": "idle" });
+      return;
+    }
+    const stable = await readinessCoordinator.restoreStable();
+    if (!mountedRef.current || lifecycleEpochRef.current !== lifecycleEpoch || availabilityRequestIdRef.current !== requestId) return;
+    setAvailability(stable);
+    setRemoteFreshness(Object.fromEntries(directedSceneScoresV1.map((score) => [
+      score.sceneId,
+      score.productionEligible && stable[score.sceneId].startable && !stable[score.sceneId].offlineReady ? "checking" : "idle",
+    ])) as Record<DirectedSceneIdV1, DirectedRemoteFreshnessUiV1>);
+    for (const score of directedSceneScoresV1) {
+      if (!score.productionEligible || !stable[score.sceneId].startable || stable[score.sceneId].offlineReady) continue;
+      void readinessCoordinator.refreshRemote(score.assets[0].sourceUri).then(async (result) => {
+        if (!result.current || !mountedRef.current || lifecycleEpochRef.current !== lifecycleEpoch || availabilityRequestIdRef.current !== requestId) return;
+        setRemoteFreshness((current) => ({ ...current, [score.sceneId]: result.status }));
+        if (result.status !== "unreachable") return;
+        const unavailable = await directedSessionServiceV1.getAvailability(score.sceneId, false);
+        if (!mountedRef.current || lifecycleEpochRef.current !== lifecycleEpoch || availabilityRequestIdRef.current !== requestId) return;
+        setAvailability((current) => ({
+          ...current,
+          [score.sceneId]: projectDirectedRemoteFreshnessAvailabilityV1(current[score.sceneId], unavailable, result.status),
+        }));
+      });
+    }
+  }, [readinessCoordinator]);
 
   const projectCurrentFromNative = useCallback(async (): Promise<NativeDirectedSessionStateV1 | null> => {
     if (projectionInFlight.current) return projectionInFlight.current;
@@ -498,6 +537,8 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
     });
     return () => {
       mountedRef.current = false;
+      availabilityRequestIdRef.current += 1;
+      readinessCoordinator.supersede();
       if (lifecycleEpochRef.current === lifecycleEpoch) lifecycleEpochRef.current += 1;
       motion.remove();
       removeState();
@@ -530,6 +571,8 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
 
   const start = async (input: CreateDirectedSessionInputV1) => {
     const lifecycleEpoch = lifecycleEpochRef.current;
+    directedSessionServiceV1.beginActivationTrace();
+    directedSessionServiceV1.recordActivationCurrentness(mountedRef.current && lifecycleEpochRef.current === lifecycleEpoch);
     setBusy(true);
     setMessage(null);
     setCompletionSaved(false);
@@ -729,13 +772,34 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
 
   const renderDetail = () => {
     const available = availability[selectedSceneId];
+    const freshness = remoteFreshness[selectedSceneId];
+    const transportAvailability = available.offlineReady
+      ? "Offline ready"
+      : !available.startable
+        ? "Streaming unavailable"
+        : freshness === "checking"
+          ? "Checking connection…"
+          : freshness === "reachable"
+            ? "Streaming available"
+            : freshness === "unreachable"
+              ? "Connection unavailable"
+              : freshness === "timeout"
+                ? "Connection not confirmed"
+                : "Streaming permitted";
+    const customerReadinessCopy = available.offlineReady || !available.startable
+      ? available.customerCopy
+      : freshness === "checking"
+        ? "Ready to start. Checking the connection in the background…"
+        : freshness === "timeout"
+          ? "Ready to start. The connection could not be confirmed."
+          : available.customerCopy;
     return (
       <View>
         <DirectedButtonV1 label="Back" onPress={() => setScreen("root")} secondary />
         <AtmosphericSceneV1 sceneId={selectedSceneId} phaseIndex={0} reduceMotionEnabled={reduceMotionEnabled} />
         <Text accessibilityRole="header" style={directedStyles.title}>{selectedScore.title}</Text>
         <Text style={directedStyles.cardTrajectory}>{selectedVariant.trajectory}</Text>
-        <Text style={directedStyles.meta}>{formatDirectedTimeV1(selectedScore.durationMs)} min · No voice · {available.offlineReady ? "Offline ready" : "Streaming available"}</Text>
+        <Text style={directedStyles.meta}>{formatDirectedTimeV1(selectedScore.durationMs)} min · No voice · {transportAvailability}</Text>
         <Text style={directedStyles.sectionLabel}>Listening on</Text>
         <View accessibilityRole="radiogroup" style={directedStyles.choiceRow}>
           {(["headphones", "speakers"] as const).map((profileOption) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: outputProfile === profileOption }} key={profileOption} onPress={() => setOutputProfile(profileOption)} style={[directedStyles.choice, outputProfile === profileOption ? directedStyles.choiceSelected : null]}><Text style={directedStyles.choiceText}>{profileOption === "headphones" ? "Headphones" : "Speakers"}</Text></Pressable>)}
@@ -747,7 +811,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
             return <Pressable accessibilityRole="button" accessibilityState={{ selected }} key={rule.avoidanceId} onPress={() => setAvoidances((current) => ({ ...current, [selectedSceneId]: selected ? current[selectedSceneId].filter((id) => id !== rule.avoidanceId) : [...current[selectedSceneId], rule.avoidanceId] }))} style={[directedStyles.chip, selected ? directedStyles.chipSelected : null]}><Text style={directedStyles.chipText}>{rule.label}</Text></Pressable>;
           })}
         </View>
-        <Text accessibilityLiveRegion="polite" style={selectedVariant.blocked || !available.startable ? directedStyles.warning : directedStyles.body}>{selectedVariant.blocked ? selectedVariant.customerCopy : available.customerCopy}</Text>
+        <Text accessibilityLiveRegion="polite" style={selectedVariant.blocked || !available.startable ? directedStyles.warning : directedStyles.body}>{selectedVariant.blocked ? selectedVariant.customerCopy : customerReadinessCopy}</Text>
         <DirectedButtonV1 label={busy ? "Starting…" : selectedVariant.blocked || !available.startable ? "Start unavailable" : "Start session"} onPress={() => void start({ sceneId: selectedSceneId, outputProfile, hardAvoidanceIds: selectedAvoidances, allowRemote: available.playingSourceMode !== "local" })} disabled={busy || selectedVariant.blocked || !available.startable} />
         {available.secondaryLabel ? <DirectedButtonV1 label={available.secondaryLabel} onPress={() => {
           if (available.secondaryLabel === "Download for offline") {

@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import NativeMedia from "../../modules/soundscape-layered-media";
+import NativeMedia, { isDirectedJsonBridgePreNativeErrorV1 } from "../../modules/soundscape-layered-media";
 import type {
   NativeDirectedAdjustCommandV1,
   NativeDirectedOutputProfileCommandV1,
@@ -250,6 +250,47 @@ export class DirectedSessionServiceV1 {
     return this.activationDiagnostic;
   }
 
+  beginActivationTrace(): void {
+    try {
+      NativeMedia.beginDirectedActivationTrace("JS_ACTIVATION_HANDLER_ENTERED", "ENTERED");
+    } catch {
+      // Diagnostic projection must never change activation behavior.
+    }
+  }
+
+  recordActivationCurrentness(accepted: boolean): void {
+    this.traceActivationStage(
+      accepted ? "JS_CURRENTNESS_ACCEPTED" : "JS_CURRENTNESS_REJECTED",
+      accepted ? "ACCEPTED" : "REJECTED",
+    );
+  }
+
+  private traceActivationStage(stage: string, classification: string, diagnosticCode?: string, error?: unknown): void {
+    try {
+      NativeMedia.recordDirectedActivationStage(
+        stage,
+        classification,
+        diagnosticCode ?? null,
+        error instanceof Error ? error.name : null,
+      );
+    } catch {
+      // Diagnostic projection must never change activation behavior.
+    }
+  }
+
+  private projectActivationResult(outcome: "SUCCESS" | "FAILURE", code: string, error?: unknown): void {
+    try {
+      NativeMedia.recordDirectedActivationProjection(
+        outcome === "SUCCESS" ? "JS_RESULT_PROJECTED_SUCCESS" : "JS_RESULT_PROJECTED_FAILURE",
+        outcome,
+        code,
+        error instanceof Error ? error.name : null,
+      );
+    } catch {
+      // Diagnostic projection must never change activation behavior.
+    }
+  }
+
   private activationError(diagnostic: DirectedActivationDiagnosticV1, cause?: unknown): DirectedActivationErrorV1 {
     this.activationDiagnostic = Object.freeze({ ...diagnostic });
     return new DirectedActivationErrorV1(this.activationDiagnostic, cause);
@@ -299,6 +340,25 @@ export class DirectedSessionServiceV1 {
     return (await this.getOfflineManager()).enumerate();
   }
 
+  async getStableAvailabilities(
+    sceneIds: readonly DirectedSceneIdV1[],
+  ): Promise<Readonly<Record<DirectedSceneIdV1, DirectedAvailabilityProjectionV1>>> {
+    const capabilityVersion = await this.refreshCapability();
+    const manifestItems = await this.getManifestItems();
+    // This authorizes an attempt against accepted catalog/rights authority; it is not a claim that
+    // the current network is reachable. Bounded freshness is projected separately by the UI.
+    const streamingAttemptAuthorized = true;
+    return Object.freeze(Object.fromEntries(sceneIds.map((sceneId) => [
+      sceneId,
+      projectDirectedAvailabilityV1({
+        sceneId,
+        capabilityVersion,
+        networkAvailable: streamingAttemptAuthorized,
+        manifestItems,
+      }),
+    ])) as Record<DirectedSceneIdV1, DirectedAvailabilityProjectionV1>);
+  }
+
   async getAvailability(sceneId: DirectedSceneIdV1, networkAvailable: boolean): Promise<DirectedAvailabilityProjectionV1> {
     const availability = projectDirectedAvailabilityV1({
       sceneId,
@@ -310,41 +370,61 @@ export class DirectedSessionServiceV1 {
   }
 
   async createDirectedSession(input: CreateDirectedSessionInputV1): Promise<NativeDirectedSessionStateV1> {
+    try {
     this.activationDiagnostic = null;
-    if (await this.refreshCapability() !== DIRECTED_SESSION_SCHEDULER_VERSION_V1) {
+    this.traceActivationStage("JS_CAPABILITY_CHECK_BEGIN", "BEGIN");
+    const capability = await this.refreshCapability();
+    this.traceActivationStage(
+      capability === DIRECTED_SESSION_SCHEDULER_VERSION_V1 ? "JS_CAPABILITY_CHECK_PASS" : "JS_CAPABILITY_CHECK_REJECT",
+      capability === DIRECTED_SESSION_SCHEDULER_VERSION_V1 ? "PASS" : "REJECT",
+    );
+    if (capability !== DIRECTED_SESSION_SCHEDULER_VERSION_V1) {
       throw this.customerActivationError("capability-check", "DIRECTED_CAPABILITY_UNAVAILABLE", "Sessions are unavailable in this build.");
     }
+    this.traceActivationStage("JS_ASSET_PREREQUISITE_BEGIN", "BEGIN");
     const score = getDirectedSceneScoreV1(input.sceneId);
     const variant = materializeDirectedSceneVariantV1(score, {
       hardAvoidanceIds: input.hardAvoidanceIds,
       outputProfile: input.outputProfile,
       allowContentGatedFixture: input.allowContentGatedFixture,
     });
-    if (variant.blocked) throw new Error(variant.customerCopy);
+    if (variant.blocked) {
+      this.traceActivationStage("JS_ASSET_PREREQUISITE_REJECT", "REJECT");
+      throw new Error(variant.customerCopy);
+    }
     const manifestItems = await this.getManifestItems();
     const sources = resolveDirectedAssetSourcesV1({ sceneId: input.sceneId, manifestItems, allowRemote: input.allowRemote });
     if (!sources.usable) {
+      this.traceActivationStage("JS_ASSET_PREREQUISITE_REJECT", "REJECT");
       throw this.customerActivationError("asset-resolution", "DIRECTED_ASSETS_UNAVAILABLE", "We couldn’t prepare this session. Nothing started.");
     }
+    this.traceActivationStage("JS_ASSET_PREREQUISITE_PASS", "PASS");
     let previous = this.current;
+    this.traceActivationStage("JS_DIRECTED_OWNER_QUERY_BEGIN", "BEGIN");
     try {
       const queried = await NativeMedia.getDirectedSessionState();
       if (finiteNativeState(queried)) await this.acceptNativeState(queried);
       previous = this.current;
+      this.traceActivationStage("JS_DIRECTED_OWNER_QUERY_RETURN", "RETURN");
     } catch (error) {
+      this.traceActivationStage("JS_DIRECTED_OWNER_QUERY_THROW", "THROW", undefined, error);
       throw this.customerActivationError("directed-owner-query", "DIRECTED_OWNER_QUERY_FAILED", DIRECTED_INACTIVE_CUSTOMER_COPY, error);
     }
     let aggregateGeneration: number | null = null;
+    this.traceActivationStage("JS_AGGREGATE_OWNER_QUERY_BEGIN", "BEGIN");
     try {
       const aggregate = await NativeMedia.queryState();
       aggregateGeneration = Number.isFinite(aggregate.generationId) ? aggregate.generationId : null;
+      this.traceActivationStage("JS_AGGREGATE_OWNER_QUERY_RETURN", "RETURN");
     } catch (error) {
+      this.traceActivationStage("JS_AGGREGATE_OWNER_QUERY_THROW", "THROW", undefined, error);
       throw this.customerActivationError("aggregate-owner-query", "AGGREGATE_OWNER_QUERY_FAILED", DIRECTED_INACTIVE_CUSTOMER_COPY, error);
     }
     // Android's existing aggregate owner fences every classic and directed definition
     // with one monotonically increasing generation. Allocate above both authorities;
     // starting at 1 after a retained classic owner was the released Android failure.
     const generationId = allocateDirectedGenerationV1([previous?.generationId, aggregateGeneration]);
+    this.traceActivationStage("JS_GENERATION_ALLOCATION_COMPLETE", "COMPLETE");
     const sessionId = `directed:${input.sceneId}:${generationId}`;
     const layerIdByAsset = new Map(variant.assets.map((candidate) => [candidate.assetId, `directed:${candidate.assetId}`]));
     const definition: NativeDirectedSessionDefinitionV1 = {
@@ -395,9 +475,13 @@ export class DirectedSessionServiceV1 {
     try {
       definitionIssued = true;
       let createdProjection: NativeDirectedSessionStateV1;
+      this.traceActivationStage("JS_NATIVE_CREATE_CALL_BEGIN", "BEGIN");
       try {
         createdProjection = await NativeMedia.createDirectedSession(definition);
+        this.traceActivationStage("JS_NATIVE_CREATE_CALL_RETURN", "RETURN");
       } catch (error) {
+        if (isDirectedJsonBridgePreNativeErrorV1(error)) definitionIssued = false;
+        this.traceActivationStage("JS_NATIVE_CREATE_CALL_THROW", "THROW", undefined, error);
         throw this.nativeActivationError(error, "native-create-dispatch");
       }
       const created = await this.acceptAcknowledgedNativeState(
@@ -416,9 +500,12 @@ export class DirectedSessionServiceV1 {
         type: "play",
       };
       let playingProjection: NativeDirectedSessionStateV1;
+      this.traceActivationStage("JS_NATIVE_PLAY_CALL_BEGIN", "BEGIN");
       try {
         playingProjection = await NativeMedia.dispatchDirectedSession(play);
+        this.traceActivationStage("JS_NATIVE_PLAY_CALL_RETURN", "RETURN");
       } catch (error) {
+        this.traceActivationStage("JS_NATIVE_PLAY_CALL_THROW", "THROW", undefined, error);
         throw this.nativeActivationError(error, "native-play-dispatch");
       }
       const playing = await this.acceptAcknowledgedNativeState(
@@ -427,6 +514,7 @@ export class DirectedSessionServiceV1 {
         ["playing"],
         { acknowledgement: "native-play-acknowledgement", owner: "native-owner-confirmation" },
       );
+      this.projectActivationResult("SUCCESS", "DIRECTED_COMMAND_ACCEPTED");
       return playing;
     } catch (error) {
       if (!(error instanceof DirectedActivationErrorV1) && !this.activationDiagnostic) {
@@ -445,6 +533,10 @@ export class DirectedSessionServiceV1 {
       const reconciled = new Error(DIRECTED_INACTIVE_CUSTOMER_COPY) as Error & { cause?: unknown };
       reconciled.cause = error;
       throw reconciled;
+    }
+    } catch (error) {
+      this.projectActivationResult("FAILURE", this.activationDiagnostic?.code ?? "DIRECTED_ACTIVATION_FAILED", error);
+      throw error;
     }
   }
 

@@ -1,17 +1,53 @@
 import { requireNativeModule } from 'expo-modules-core';
-import type { SoundscapeLayeredMediaEvents, SoundscapeLayeredMediaNativeModule } from './SoundscapeLayeredMedia.types';
+import { Platform } from 'react-native';
+import type { NativeDirectedSessionDefinitionV1, NativeDirectedSessionStateV1, SoundscapeLayeredMediaEvents, SoundscapeLayeredMediaNativeModule } from './SoundscapeLayeredMedia.types';
+import {
+  serializeDirectedSessionDefinitionV1,
+} from './directedSessionJsonBridgeV1';
 import { assertNoUndefinedNativePayload } from './nativePayload';
 
 export type * from './SoundscapeLayeredMedia.types';
 
-type NativeModule = SoundscapeLayeredMediaNativeModule & {
+export {
+  DirectedJsonBridgePreNativeErrorV1,
+  DIRECTED_SESSION_JSON_MAX_UTF8_BYTES_V1,
+  isDirectedJsonBridgePreNativeErrorV1,
+  serializeDirectedSessionDefinitionV1,
+} from './directedSessionJsonBridgeV1';
+
+type ListenerModule = {
   addListener<EventName extends keyof SoundscapeLayeredMediaEvents>(
     eventName: EventName,
     listener: SoundscapeLayeredMediaEvents[EventName],
   ): { remove(): void };
 };
 
-const nativeModule = requireNativeModule<NativeModule>('SoundscapeLayeredMedia');
+type NativeModule = SoundscapeLayeredMediaNativeModule & ListenerModule;
+
+type ExpoNativeModule = Omit<SoundscapeLayeredMediaNativeModule, 'createDirectedSession'> & ListenerModule & {
+  createDirectedSession(definition: NativeDirectedSessionDefinitionV1 | string): Promise<NativeDirectedSessionStateV1>;
+};
+
+const nativeModule = requireNativeModule<ExpoNativeModule>('SoundscapeLayeredMedia');
+
+
+const traceStage = (stage: string, classification: string, diagnosticCode?: string, error?: unknown): void => {
+  try {
+    nativeModule.recordDirectedActivationStage(
+      stage,
+      classification,
+      diagnosticCode ?? null,
+      error instanceof Error ? error.name : null,
+    );
+  } catch {
+    // Diagnostic projection must never change activation behavior.
+  }
+};
+
+const tracedDirectedCall = async <Result>(wrapperStage: string, invoke: () => Promise<Result>): Promise<Result> => {
+  traceStage(wrapperStage, 'ENTERED');
+  return invoke();
+};
 
 const guardedModule: NativeModule = {
   isAvailable: () => nativeModule.isAvailable(),
@@ -50,31 +86,41 @@ const guardedModule: NativeModule = {
     assertNoUndefinedNativePayload(command);
     return nativeModule.dispose(command);
   },
-  createDirectedSession(definition) {
+  async createDirectedSession(definition) {
     assertNoUndefinedNativePayload(definition);
-    return nativeModule.createDirectedSession(definition);
+    return tracedDirectedCall('NATIVE_WRAPPER_CREATE_ENTERED', () => {
+      const nativeDefinition = Platform.OS === 'android'
+        ? serializeDirectedSessionDefinitionV1(definition)
+        : definition;
+      return nativeModule.createDirectedSession(nativeDefinition);
+    });
   },
-  dispatchDirectedSession(command) {
+  async dispatchDirectedSession(command) {
     assertNoUndefinedNativePayload(command);
     return nativeModule.dispatchDirectedSession(command);
   },
-  steerDirectedSession(command) {
+  async steerDirectedSession(command) {
     assertNoUndefinedNativePayload(command);
     return nativeModule.steerDirectedSession(command);
   },
-  undoDirectedSessionSteering(command) {
+  async undoDirectedSessionSteering(command) {
     assertNoUndefinedNativePayload(command);
     return nativeModule.undoDirectedSessionSteering(command);
   },
-  adjustDirectedSession(command) {
+  async adjustDirectedSession(command) {
     assertNoUndefinedNativePayload(command);
     return nativeModule.adjustDirectedSession(command);
   },
-  setDirectedSessionOutputProfile(command) {
+  async setDirectedSessionOutputProfile(command) {
     assertNoUndefinedNativePayload(command);
     return nativeModule.setDirectedSessionOutputProfile(command);
   },
   getDirectedSessionState: () => nativeModule.getDirectedSessionState(),
+  beginDirectedActivationTrace: (stage, classification) => nativeModule.beginDirectedActivationTrace(stage, classification),
+  recordDirectedActivationStage: (stage, classification, diagnosticCode, exceptionClass) => nativeModule.recordDirectedActivationStage(stage, classification, diagnosticCode, exceptionClass),
+  recordDirectedActivationProjection: (stage, outcome, code, exceptionClass) => nativeModule.recordDirectedActivationProjection(stage, outcome, code, exceptionClass),
+  clearDirectedActivationTrace: () => nativeModule.clearDirectedActivationTrace(),
+  getDirectedActivationDiagnostic: () => nativeModule.getDirectedActivationDiagnostic(),
   addListener<EventName extends keyof SoundscapeLayeredMediaEvents>(
     eventName: EventName,
     listener: SoundscapeLayeredMediaEvents[EventName],
