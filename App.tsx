@@ -354,11 +354,11 @@ const playbackTraceDisplayRefreshMillis = 250;
 const playbackTraceEventLoopGapThresholdMillis = 250;
 const sessionReplacementFadeMillis = 120;
 const appIterationInfo = {
-  label: "Alpha 0.14.9",
-  displayLabel: "Alpha 0.14.9 — Classic Navigation Ownership Correction",
-  currentUpdate: "Alpha 0.14.9 — Classic Navigation Ownership Correction",
-  codename: "classic-navigation-ownership-correction-v1",
-  fullInternalLabel: "Alpha 0.14.9+classic-navigation-ownership-correction-v1",
+  label: "Alpha 0.15.0",
+  displayLabel: "Alpha 0.15.0 — Directed Sessions Visual Convergence v1",
+  currentUpdate: "Alpha 0.15.0 — Directed Sessions Visual Convergence v1",
+  codename: "directed-sessions-visual-convergence-v1",
+  fullInternalLabel: "Alpha 0.15.0+directed-sessions-visual-convergence-v1",
   acceptedNativeBaseline: {
     label: "Alpha 0.11.7",
     displayLabel: "Alpha 0.11.7 — Single Preview Selection-Ready Fix",

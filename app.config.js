@@ -1,9 +1,9 @@
 const UNBOUND_SOURCE_COMMIT = "0000000000000000000000000000000000000000";
 const RELEASE = Object.freeze({
-  label: "Alpha 0.14.9",
-  displayLabel: "Alpha 0.14.9 — Classic Navigation Ownership Correction",
-  codename: "classic-navigation-ownership-correction-v1",
-  internalLabel: "Alpha 0.14.9+classic-navigation-ownership-correction-v1",
+  label: "Alpha 0.15.0",
+  displayLabel: "Alpha 0.15.0 — Directed Sessions Visual Convergence v1",
+  codename: "directed-sessions-visual-convergence-v1",
+  internalLabel: "Alpha 0.15.0+directed-sessions-visual-convergence-v1",
 });
 
 module.exports = ({ config }) => {

@@ -1,15 +1,15 @@
 {
-  "canonicalPrivateCommit": "f584848fccb653f14c07e0fad6fdf160a6aa7c42",
+  "canonicalPrivateCommit": "1b032183617e63d926f97ca21bbbba86580662d5",
   "exportedPaths": [
     {
       "path": ".github/workflows/ios-internal.yml",
-      "byteLength": 13993,
-      "sha256": "bf1593fa7e7fb3619c67b2b5141dc4410f5cd8410bca8916eede6095181adf4e"
+      "byteLength": 14064,
+      "sha256": "87feeb1d59c2a0ddfff73fb6ba3e65627cfce7738af190ee28bfed639e7de2bf"
     },
     {
       "path": "App.tsx",
-      "byteLength": 557977,
-      "sha256": "2406999373158cd7c1c7e978e12716b57f0d3da4bc40d0043a933360b878f2b1"
+      "byteLength": 557971,
+      "sha256": "5a6ea0a96d386147fd27b8d2d0d44d8a07c7fa95da941c8238b64d6d9727680e"
     },
     {
       "path": "README.md",
@@ -18,13 +18,13 @@
     },
     {
       "path": "app.config.js",
-      "byteLength": 1877,
-      "sha256": "32393d94b229c79c19fbd42645d9726c7d8dfe5f7009d3489d9593e5b3f5a850"
+      "byteLength": 1871,
+      "sha256": "031d8fe51bcfdf2dbd83f3286dde8fe2a83907627cc1fc52287bbae0619dec17"
     },
     {
       "path": "app.json",
       "byteLength": 1321,
-      "sha256": "cb3ac1a7c12094aa3d100016e9de0b4663eed02880ece736c79f305b1993df1e"
+      "sha256": "0c2b51f2eb9f7811efa4e0048983261e758749ed8ae9f0c556baa65acae4be43"
     },
     {
       "path": "assets/icon.png",
@@ -253,13 +253,13 @@
     },
     {
       "path": "src/directedSessions/DirectedSessionsExperienceV1.tsx",
-      "byteLength": 61779,
-      "sha256": "32aba2060c9d8282113b73b6e488979aa88b99a8c72d4f07f1e904a0c6367d4a"
+      "byteLength": 72399,
+      "sha256": "7419715b7ab1b31361dc834b3dd33a58f5c72de8c7121abeec30fd59b395b6b2"
     },
     {
       "path": "src/directedSessions/eligibilityV1.ts",
-      "byteLength": 15570,
-      "sha256": "3d7e5118d21600454d2efc0a14ec43fcdf4199c3c505704b5ac062e1e2575377"
+      "byteLength": 15522,
+      "sha256": "cae8a37771e86b3816680d9cf82fe72973de5cee29dd0bdce10c90f8d9a75797"
     },
     {
       "path": "src/directedSessions/foregroundProjectionPolicyV1.ts",
@@ -278,8 +278,8 @@
     },
     {
       "path": "src/directedSessions/sceneScoresV1.ts",
-      "byteLength": 28680,
-      "sha256": "3268d9a610dfe0bdefca18b0d97bee7505a1abe2cf5d27795f173a1a53e39348"
+      "byteLength": 28644,
+      "sha256": "927b3294d0232ea48b80b2ef9a202529f503d52894e5e214a93961e7140cac07"
     },
     {
       "path": "src/directedSessions/sessionStateV1.ts",

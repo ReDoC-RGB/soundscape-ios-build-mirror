@@ -191,7 +191,7 @@ export function projectDirectedAvailabilityV1(input: Readonly<{
   if (!input.networkAvailable) {
     return Object.freeze({ ...base, state: "offline-missing", customerCopy: "This session isn’t downloaded.", primaryLabel: "Unavailable offline", secondaryLabel: "Try again when online", startable: false, offlineReady: false, playingSourceMode: null });
   }
-  return Object.freeze({ ...base, state: "ready-to-stream", customerCopy: "Ready to stream. Download for offline listening anytime.", primaryLabel: "Start session", secondaryLabel: "Download for offline", startable: true, offlineReady: false, playingSourceMode: "remote" });
+  return Object.freeze({ ...base, state: "ready-to-stream", customerCopy: "Streaming available.", primaryLabel: "Start session", secondaryLabel: "Download", startable: true, offlineReady: false, playingSourceMode: "remote" });
 }
 
 export function createDirectedDownloadInputsV1(sceneId: DirectedSceneIdV1, now: string) {

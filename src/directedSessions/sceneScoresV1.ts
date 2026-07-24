@@ -480,7 +480,7 @@ export function materializeDirectedSceneVariantV1(
   const texturePairs = score.texturePairs.filter((pair) => pair.assetIds.every((id) => !removals.has(id) && usedIds.has(id)));
   return Object.freeze({
     blocked: false,
-    customerCopy: "Ready to stream. Download for offline listening anytime.",
+    customerCopy: "Streaming available.",
     sceneId: score.sceneId,
     sceneVersion: 1,
     scoreHash: score.scoreHash,

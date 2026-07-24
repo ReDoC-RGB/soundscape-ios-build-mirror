@@ -119,34 +119,48 @@ function DirectedButtonV1(props: Readonly<{
   );
 }
 
-function RainSceneV1({ phaseIndex, reduceMotionEnabled, compact = false }: Readonly<{ phaseIndex: number; reduceMotionEnabled: boolean; compact?: boolean }>) {
+function RainDeskIllustrationV1({ phaseIndex, reduceMotionEnabled, compact = false }: Readonly<{ phaseIndex: number; reduceMotionEnabled: boolean; compact?: boolean }>) {
   return (
     <View style={[directedStyles.scene, compact ? directedStyles.sceneCompact : null, directedStyles.rainScene, reduceMotionEnabled ? directedStyles.staticScene : null]}>
       <View style={[directedStyles.rainWindow, phaseIndex >= 4 ? directedStyles.rainWindowDark : null]} />
       {[0, 1, 2, 3, 4, 5].map((line) => <View key={line} style={[directedStyles.rainLine, { left: 22 + line * 42, top: 16 + (line % 3) * 32 }]} />)}
-      {phaseIndex >= 1 ? <View style={directedStyles.paperSheet} /> : null}
-      {phaseIndex >= 2 && phaseIndex < 4 ? <View style={directedStyles.pencilTrace} /> : null}
+      <View style={directedStyles.rainDeskSurface} />
+      <View style={directedStyles.rainDeskCup} />
+      <View style={directedStyles.rainDeskCupHandle} />
+      <View style={directedStyles.rainDeskLampStem} />
+      <View style={directedStyles.rainDeskLamp} />
+      <View style={directedStyles.paperSheet} />
+      <View style={[directedStyles.pencilTrace, phaseIndex >= 2 && phaseIndex < 4 ? directedStyles.pencilTraceActive : null]} />
     </View>
   );
 }
 
-function PorcelainSceneV1({ phaseIndex, reduceMotionEnabled, compact = false }: Readonly<{ phaseIndex: number; reduceMotionEnabled: boolean; compact?: boolean }>) {
+function PorcelainTableIllustrationV1({ phaseIndex, reduceMotionEnabled, compact = false }: Readonly<{ phaseIndex: number; reduceMotionEnabled: boolean; compact?: boolean }>) {
   return (
     <View style={[directedStyles.scene, compact ? directedStyles.sceneCompact : null, directedStyles.porcelainScene, reduceMotionEnabled ? directedStyles.staticScene : null]}>
+      <View style={directedStyles.porcelainTableSurface} />
       <View style={directedStyles.porcelainPlate} />
       <View style={[directedStyles.shellMark, { transform: [{ rotate: "18deg" }] }]} />
-      {phaseIndex >= 1 ? <View style={directedStyles.woodArc} /> : null}
-      {phaseIndex >= 2 && phaseIndex < 4 ? <View style={directedStyles.metalGlint} /> : null}
+      <View style={directedStyles.porcelainCup} />
+      <View style={directedStyles.porcelainCupHandle} />
+      <View style={[directedStyles.woodArc, phaseIndex >= 1 ? directedStyles.woodArcActive : null]} />
+      <View style={[directedStyles.metalGlint, phaseIndex >= 2 && phaseIndex < 4 ? directedStyles.metalGlintActive : null]} />
     </View>
   );
 }
 
-function WardrobeSceneV1({ phaseIndex, reduceMotionEnabled, compact = false }: Readonly<{ phaseIndex: number; reduceMotionEnabled: boolean; compact?: boolean }>) {
+function SoftWardrobeIllustrationV1({ phaseIndex, reduceMotionEnabled, compact = false }: Readonly<{ phaseIndex: number; reduceMotionEnabled: boolean; compact?: boolean }>) {
   return (
     <View style={[directedStyles.scene, compact ? directedStyles.sceneCompact : null, directedStyles.wardrobeScene, reduceMotionEnabled ? directedStyles.staticScene : null]}>
-      {[0, 1, 2].map((fold) => <View key={fold} style={[directedStyles.fabricFold, { left: 34 + fold * 72, opacity: 0.72 - fold * 0.12 }]} />)}
-      {phaseIndex >= 1 && phaseIndex < 4 ? <View style={directedStyles.leatherStitch} /> : null}
-      {phaseIndex >= 2 && phaseIndex < 4 ? <View style={directedStyles.brushSweep} /> : null}
+      <View style={directedStyles.wardrobeRail} />
+      {[0, 1, 2, 3].map((fold) => (
+        <View key={fold}>
+          <View style={[directedStyles.wardrobeHanger, { left: 32 + fold * 58 }]} />
+          <View style={[directedStyles.fabricFold, { left: 24 + fold * 58, opacity: 0.82 - fold * 0.08 }]} />
+        </View>
+      ))}
+      <View style={[directedStyles.leatherStitch, phaseIndex >= 1 && phaseIndex < 4 ? directedStyles.leatherStitchActive : null]} />
+      <View style={[directedStyles.brushSweep, phaseIndex >= 2 && phaseIndex < 4 ? directedStyles.brushSweepActive : null]} />
     </View>
   );
 }
@@ -154,9 +168,9 @@ function WardrobeSceneV1({ phaseIndex, reduceMotionEnabled, compact = false }: R
 function AtmosphericSceneV1(props: Readonly<{ sceneId: DirectedSceneIdV1; phaseIndex: number; reduceMotionEnabled: boolean; compact?: boolean }>) {
   return (
     <View accessible={false} importantForAccessibility="no-hide-descendants">
-      {props.sceneId === "rain-desk-v1" ? <RainSceneV1 {...props} /> : null}
-      {props.sceneId === "porcelain-table-v1" ? <PorcelainSceneV1 {...props} /> : null}
-      {props.sceneId === "soft-wardrobe-v1" ? <WardrobeSceneV1 {...props} /> : null}
+      {props.sceneId === "rain-desk-v1" ? <RainDeskIllustrationV1 {...props} /> : null}
+      {props.sceneId === "porcelain-table-v1" ? <PorcelainTableIllustrationV1 {...props} /> : null}
+      {props.sceneId === "soft-wardrobe-v1" ? <SoftWardrobeIllustrationV1 {...props} /> : null}
     </View>
   );
 }
@@ -231,13 +245,18 @@ function DirectedPlayerV1(props: Readonly<{
   return (
     <View>
       <DirectedButtonV1 label={props.backLabel} onPress={props.onBack} secondary />
-      <Text style={directedStyles.eyebrow}>Now playing</Text>
-      <Text accessibilityRole="header" style={directedStyles.title}>{props.state.title}</Text>
-      <AtmosphericSceneV1 sceneId={props.state.sceneId as DirectedSceneIdV1} phaseIndex={props.state.phaseIndex} reduceMotionEnabled={props.reduceMotionEnabled} />
-      <Text accessibilityLiveRegion="polite" style={directedStyles.phaseTitle}>{props.state.phaseLabel}</Text>
-      <Text style={directedStyles.progressCopy}>{formatDirectedTimeV1(props.state.playedElapsedMs)} / {formatDirectedTimeV1(props.state.durationMs)} · {formatDirectedTimeV1(remaining)} left</Text>
-      <DirectedProgressV1 state={props.state} />
-      <Text style={directedStyles.nextCopy}>{props.state.nextPhaseLabel ? `Next · ${props.state.nextPhaseLabel}` : "Final phase"}</Text>
+      <View style={directedStyles.playerCard}>
+        <AtmosphericSceneV1 sceneId={props.state.sceneId as DirectedSceneIdV1} phaseIndex={props.state.phaseIndex} reduceMotionEnabled={props.reduceMotionEnabled} />
+        <Text style={directedStyles.eyebrow}>Now playing · {props.state.title}</Text>
+        <Text accessibilityLiveRegion="polite" accessibilityRole="header" style={directedStyles.phaseTitle}>{props.state.phaseLabel}</Text>
+        <Text style={directedStyles.nextCopy}>{props.state.nextPhaseLabel ? `Next · ${props.state.nextPhaseLabel}` : "Final phase"}</Text>
+        <View style={directedStyles.progressCopyRow}>
+          <Text style={directedStyles.progressCopy}>{formatDirectedTimeV1(props.state.playedElapsedMs)} / {formatDirectedTimeV1(props.state.durationMs)}</Text>
+          <Text style={directedStyles.progressCopy}>{formatDirectedTimeV1(remaining)} left</Text>
+        </View>
+        <DirectedProgressV1 state={props.state} />
+        <Text style={directedStyles.progressReadOnlyCopy}>Progress indicator · read-only</Text>
+      </View>
       {message ? <Text accessibilityLiveRegion="polite" style={directedStyles.statusBanner}>{message}</Text> : null}
       {props.state.pendingSteering || props.state.pathHistory.length ? (
         <DirectedButtonV1
@@ -248,12 +267,12 @@ function DirectedPlayerV1(props: Readonly<{
           disabled={props.sendingControl !== null}
         />
       ) : null}
-      <View style={directedStyles.transportRow}>
+      <View style={[directedStyles.transportRow, props.compact ? directedStyles.transportRowCompact : null]}>
         <DirectedButtonV1 label={props.state.transport === "playing" ? "Pause" : "Resume"} onPress={props.onTransport} disabled={props.sendingControl !== null} />
         <DirectedButtonV1 label="End session" onPress={props.onEnd} destructive disabled={props.sendingControl !== null} />
       </View>
       <Text accessibilityRole="header" style={directedStyles.sectionTitle}>Steering</Text>
-      <Text style={directedStyles.body}>Changes take effect only after the native session acknowledges them.</Text>
+      <Text style={directedStyles.body}>Changes apply at the next safe point.</Text>
       <View style={[directedStyles.steeringGrid, props.compact ? directedStyles.steeringGridCompact : null]}>
         {([
           ["softer", "Softer"],
@@ -285,28 +304,30 @@ function DirectedPlayerV1(props: Readonly<{
           accessibilityState={{ disabled: props.sendingControl !== null || !texturePair, selected: pendingTexture }}
           disabled={props.sendingControl !== null || !texturePair}
           onPress={props.onTexture}
-          style={({ pressed }) => [directedStyles.steeringControl, pendingTexture ? directedStyles.steeringSelected : null, pressed ? directedStyles.pressed : null]}
+          style={({ pressed }) => [directedStyles.steeringControl, directedStyles.steeringControlWide, pendingTexture ? directedStyles.steeringSelected : null, pressed ? directedStyles.pressed : null]}
         >
           <Text style={directedStyles.steeringLabel}>Different texture</Text>
           <Text style={directedStyles.steeringState}>{props.sendingControl === "different-texture" ? "Sending…" : pendingTexture ? "Pending · tap to cancel" : "Compatible pair"}</Text>
         </Pressable>
       </View>
-      <Text style={directedStyles.statusRow}>Timer · {formatDirectedTimeV1(remaining)} left · ends with {score.phases.at(-1)?.label}</Text>
-      <Text style={directedStyles.sectionLabel}>Listening profile</Text>
-      <View accessibilityRole="radiogroup" style={directedStyles.choiceRow}>
-        {(["headphones", "speakers"] as const).map((profile) => (
-          <Pressable
-            accessibilityRole="radio"
-            accessibilityState={{ checked: props.state.outputProfile === profile }}
-            key={profile}
-            onPress={() => props.onProfile(profile)}
-            style={[directedStyles.choice, props.state.outputProfile === profile ? directedStyles.choiceSelected : null]}
-          >
-            <Text style={directedStyles.choiceText}>{profile === "headphones" ? "Headphones" : "Speakers"}</Text>
-          </Pressable>
-        ))}
+      <View style={directedStyles.listeningStatusPanel}>
+        <Text style={directedStyles.statusRow}>Timer · {formatDirectedTimeV1(remaining)} left · ends with {score.phases.at(-1)?.label}</Text>
+        <Text style={directedStyles.sectionLabel}>Listening profile</Text>
+        <View accessibilityRole="radiogroup" style={directedStyles.choiceRow}>
+          {(["headphones", "speakers"] as const).map((profile) => (
+            <Pressable
+              accessibilityRole="radio"
+              accessibilityState={{ checked: props.state.outputProfile === profile }}
+              key={profile}
+              onPress={() => props.onProfile(profile)}
+              style={[directedStyles.choice, props.state.outputProfile === profile ? directedStyles.choiceSelected : null]}
+            >
+              <Text style={directedStyles.choiceText}>{profile === "headphones" ? "Headphones" : "Speakers"}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <Text style={directedStyles.streamingState}>{props.state.playingOffline ? "Playing offline" : "Streaming"}</Text>
       </View>
-      <Text style={directedStyles.statusRow}>{props.state.playingOffline ? "Playing offline" : "Streaming"}</Text>
       <DirectedButtonV1 label="Adjust this session" onPress={props.onAdjust} secondary />
     </View>
   );
@@ -393,22 +414,77 @@ function SessionCardV1(props: Readonly<{
   sceneId: DirectedSceneIdV1;
   availability: DirectedAvailabilityProjectionV1;
   reduceMotionEnabled: boolean;
+  compact: boolean;
   onOpen: () => void;
+  onDownload: () => void;
 }>) {
   const score = getDirectedSceneScoreV1(props.sceneId);
+  const featured = props.sceneId === "rain-desk-v1";
+  const stateLabel = props.availability.state === "content-gated" || props.availability.state === "native-unavailable"
+    ? "Not available"
+    : props.availability.offlineReady
+      ? "Available offline"
+      : props.availability.state === "downloading"
+        ? `Downloading ${props.availability.verifiedCount} of ${props.availability.totalCount}`
+        : props.availability.state === "package-corrupt"
+          ? "Download needs attention"
+          : props.availability.state === "checking"
+            ? "Checking availability"
+            : props.availability.state === "offline-missing"
+              ? "Streaming unavailable"
+              : "Streaming available";
+  const canDownload = props.availability.state === "ready-to-stream" || props.availability.state === "package-corrupt";
   return (
-    <Pressable accessibilityHint="Opens session details without starting audio" accessibilityRole="button" onPress={props.onOpen} style={({ pressed }) => [directedStyles.sessionCard, pressed ? directedStyles.pressed : null]}>
-      <View style={directedStyles.sessionCardHeader}>
-        <View style={directedStyles.sessionCardCopy}>
-          <Text style={directedStyles.cardTitle}>{score.title}</Text>
-          <Text style={directedStyles.cardTrajectory}>{score.trajectory}</Text>
+    <View
+      style={[
+        directedStyles.sessionCard,
+        featured ? directedStyles.sessionCardFeatured : null,
+        props.compact ? directedStyles.sessionCardCompact : null,
+      ]}
+    >
+      <Pressable
+        accessibilityHint="Opens session details without starting audio"
+        accessibilityLabel={`${score.title} session`}
+        accessibilityRole="button"
+        onPress={props.onOpen}
+        style={({ pressed }) => pressed ? directedStyles.pressed : null}
+      >
+        <View style={[directedStyles.sessionCardMain, featured ? directedStyles.sessionCardMainFeatured : null, props.compact ? directedStyles.sessionCardMainCompact : null]}>
+          <View style={[directedStyles.sessionArtwork, featured ? directedStyles.sessionArtworkFeatured : null, props.compact ? directedStyles.sessionArtworkCompact : null]}>
+            <AtmosphericSceneV1 compact={!featured} sceneId={props.sceneId} phaseIndex={0} reduceMotionEnabled={props.reduceMotionEnabled} />
+          </View>
+          <View style={directedStyles.sessionCardCopy}>
+            <View style={directedStyles.sessionCardHeader}>
+              <View style={directedStyles.sessionCardTitleBlock}>
+                <Text style={directedStyles.cardTitle}>{score.title}</Text>
+                <Text style={directedStyles.cardTrajectory}>{score.trajectory}</Text>
+              </View>
+              <Text accessibilityElementsHidden style={directedStyles.chevron}>›</Text>
+            </View>
+            <Text style={directedStyles.meta}>{Math.round(score.durationMs / 60_000)} min · No voice{featured ? " · Headphones + speakers" : ""}</Text>
+            <Text style={directedStyles.body}>{score.cardCopy}</Text>
+          </View>
         </View>
-        <Text style={directedStyles.offlinePill}>{props.availability.state === "content-gated" ? "Not available" : props.availability.offlineReady ? "Offline ready" : props.availability.state === "downloading" ? "Downloading" : props.availability.state === "package-corrupt" ? "Retry download" : "Download"}</Text>
+      </Pressable>
+      <View style={directedStyles.sessionCardFooter}>
+        <Text accessibilityLiveRegion="polite" style={directedStyles.downloadState}>{stateLabel}</Text>
+        {props.availability.offlineReady ? null : (
+          <Pressable
+            accessibilityLabel={`Download ${score.title} for offline listening`}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !canDownload }}
+            disabled={!canDownload}
+            onPress={(event) => {
+              event.stopPropagation();
+              props.onDownload();
+            }}
+            style={({ pressed }) => [directedStyles.downloadAction, !canDownload ? directedStyles.disabled : null, pressed ? directedStyles.pressed : null]}
+          >
+            <Text style={directedStyles.downloadActionText}>{props.availability.state === "package-corrupt" ? "Retry download" : "↓  Download"}</Text>
+          </Pressable>
+        )}
       </View>
-      <Text style={directedStyles.body}>{score.cardCopy}</Text>
-      <AtmosphericSceneV1 compact sceneId={props.sceneId} phaseIndex={0} reduceMotionEnabled={props.reduceMotionEnabled} />
-      <Text style={directedStyles.meta}>{formatDirectedTimeV1(score.durationMs)} min · No voice · Headphones + speakers</Text>
-    </Pressable>
+    </View>
   );
 }
 
@@ -418,7 +494,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
 }>) {
   const { width, fontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const compact = width <= 360 || fontScale > 1.2;
+  const compact = width <= 360 || fontScale >= 1.35;
   const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
   const [tab, setTab] = useState<DirectedTabV1>(props.initialTab ?? "sessions");
   const [screen, setScreen] = useState<DirectedScreenV1>("root");
@@ -623,7 +699,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
       const next = await directedSessionServiceV1.steerDirectedSession(axis, nextLevel(nativeState.appliedSteering[axis]));
       if (!canSettleUi(lifecycleEpoch, next)) return;
       setNativeState(next);
-      AccessibilityInfo.announceForAccessibility("Steering change acknowledged and pending.");
+      AccessibilityInfo.announceForAccessibility("Change pending. It will apply at the next safe point.");
     } catch {
       if (canSettleUi(lifecycleEpoch)) setMessage("That change couldn’t be applied. Your current path is unchanged.");
     } finally {
@@ -701,9 +777,36 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
     });
   };
 
+  const downloadPackageForScene = async (sceneId: DirectedSceneIdV1) => {
+    const current = availability[sceneId];
+    if (current.state !== "ready-to-stream" && current.state !== "package-corrupt") return;
+    setAvailability((previous) => ({
+      ...previous,
+      [sceneId]: {
+        ...previous[sceneId],
+        state: "downloading",
+        customerCopy: `Downloading ${previous[sceneId].verifiedCount} of ${previous[sceneId].totalCount} sounds…`,
+        primaryLabel: "Cancel download",
+        secondaryLabel: null,
+        startable: false,
+        offlineReady: false,
+        playingSourceMode: null,
+      },
+    }));
+    try {
+      const next = await directedSessionServiceV1.downloadDirectedPackage(sceneId);
+      setAvailability((previous) => ({ ...previous, [sceneId]: next }));
+    } catch {
+      const next = await directedSessionServiceV1.getAvailability(sceneId, true);
+      setAvailability((previous) => ({ ...previous, [sceneId]: next }));
+      setMessage("A session sound needs to be downloaded again.");
+    }
+  };
+
   const renderSessions = () => (
     <View>
-      <Text accessibilityRole="header" style={directedStyles.title}>Sessions</Text>
+      <Text accessibilityRole="header" style={directedStyles.title}>Directed Sessions</Text>
+      <Text style={directedStyles.body}>Choose an authored sound path.</Text>
       {nativeState && ["playing", "paused", "interrupted"].includes(nativeState.transport) ? (
         <View style={directedStyles.continueCard}>
           <Text style={directedStyles.sectionLabel}>Continue</Text>
@@ -719,8 +822,30 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
           <DirectedButtonV1 label="Restart current phase" onPress={() => void start({ sceneId: checkpoint.sceneId, outputProfile: checkpoint.outputProfile, hardAvoidanceIds: checkpoint.hardAvoidanceIds, allowRemote: !checkpoint.playingOffline, initialAppliedSteering: checkpoint.appliedSteering, initialManualTrims: checkpoint.manualTrims, restartAtPhaseIndex: checkpoint.phaseIndex })} />
         </View>
       ) : null}
-      <Text accessibilityRole="header" style={directedStyles.sectionTitle}>Choose a session</Text>
-      {directedSceneScoresV1.map((score) => <SessionCardV1 key={score.sceneId} sceneId={score.sceneId} availability={availability[score.sceneId]} reduceMotionEnabled={reduceMotionEnabled} onOpen={() => { setSelectedSceneId(score.sceneId); setOutputProfile("headphones"); setScreen("detail"); setMessage(null); }} />)}
+      <Text style={directedStyles.listSectionLabel}>Featured session</Text>
+      {directedSceneScoresV1.filter((score) => score.sceneId === "rain-desk-v1").map((score) => (
+        <SessionCardV1
+          key={score.sceneId}
+          sceneId={score.sceneId}
+          availability={availability[score.sceneId]}
+          reduceMotionEnabled={reduceMotionEnabled}
+          compact={compact}
+          onOpen={() => { setSelectedSceneId(score.sceneId); setOutputProfile("headphones"); setScreen("detail"); setMessage(null); }}
+          onDownload={() => { void downloadPackageForScene(score.sceneId); }}
+        />
+      ))}
+      <Text style={directedStyles.listSectionLabel}>More sessions</Text>
+      {directedSceneScoresV1.filter((score) => score.sceneId !== "rain-desk-v1").map((score) => (
+        <SessionCardV1
+          key={score.sceneId}
+          sceneId={score.sceneId}
+          availability={availability[score.sceneId]}
+          reduceMotionEnabled={reduceMotionEnabled}
+          compact={compact}
+          onOpen={() => { setSelectedSceneId(score.sceneId); setOutputProfile("headphones"); setScreen("detail"); setMessage(null); }}
+          onDownload={() => { void downloadPackageForScene(score.sceneId); }}
+        />
+      ))}
     </View>
   );
 
@@ -774,7 +899,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
     const available = availability[selectedSceneId];
     const freshness = remoteFreshness[selectedSceneId];
     const transportAvailability = available.offlineReady
-      ? "Offline ready"
+      ? "Available offline"
       : !available.startable
         ? "Streaming unavailable"
         : freshness === "checking"
@@ -785,7 +910,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
               ? "Connection unavailable"
               : freshness === "timeout"
                 ? "Connection not confirmed"
-                : "Streaming permitted";
+                : "Streaming available";
     const customerReadinessCopy = available.offlineReady || !available.startable
       ? available.customerCopy
       : freshness === "checking"
@@ -793,34 +918,41 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
         : freshness === "timeout"
           ? "Ready to start. The connection could not be confirmed."
           : available.customerCopy;
+    const downloadActionLabel = available.state === "ready-to-stream"
+      ? "Download"
+      : available.state === "package-corrupt"
+        ? "Retry download"
+        : null;
     return (
       <View>
         <DirectedButtonV1 label="Back" onPress={() => setScreen("root")} secondary />
-        <AtmosphericSceneV1 sceneId={selectedSceneId} phaseIndex={0} reduceMotionEnabled={reduceMotionEnabled} />
-        <Text accessibilityRole="header" style={directedStyles.title}>{selectedScore.title}</Text>
-        <Text style={directedStyles.cardTrajectory}>{selectedVariant.trajectory}</Text>
-        <Text style={directedStyles.meta}>{formatDirectedTimeV1(selectedScore.durationMs)} min · No voice · {transportAvailability}</Text>
-        <Text style={directedStyles.sectionLabel}>Listening on</Text>
-        <View accessibilityRole="radiogroup" style={directedStyles.choiceRow}>
-          {(["headphones", "speakers"] as const).map((profileOption) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: outputProfile === profileOption }} key={profileOption} onPress={() => setOutputProfile(profileOption)} style={[directedStyles.choice, outputProfile === profileOption ? directedStyles.choiceSelected : null]}><Text style={directedStyles.choiceText}>{profileOption === "headphones" ? "Headphones" : "Speakers"}</Text></Pressable>)}
+        <View style={directedStyles.detailCard}>
+          <AtmosphericSceneV1 sceneId={selectedSceneId} phaseIndex={0} reduceMotionEnabled={reduceMotionEnabled} />
+          <Text accessibilityRole="header" style={directedStyles.title}>{selectedScore.title}</Text>
+          <Text style={directedStyles.cardTrajectory}>{selectedVariant.trajectory}</Text>
+          <Text style={directedStyles.meta}>{Math.round(selectedScore.durationMs / 60_000)} min · No voice · {transportAvailability}</Text>
+          <View style={directedStyles.sessionPathCard}>
+            <Text style={directedStyles.sectionLabel}>Session path</Text>
+            <Text style={directedStyles.sessionPathCopy}>{selectedScore.phases.map((phase) => phase.label).join("  →  ")}</Text>
+          </View>
+          <Text style={directedStyles.sectionLabel}>Listening on</Text>
+          <View accessibilityRole="radiogroup" style={directedStyles.choiceRow}>
+            {(["headphones", "speakers"] as const).map((profileOption) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: outputProfile === profileOption }} key={profileOption} onPress={() => setOutputProfile(profileOption)} style={[directedStyles.choice, outputProfile === profileOption ? directedStyles.choiceSelected : null]}><Text style={directedStyles.choiceText}>{profileOption === "headphones" ? "Headphones" : "Speakers"}</Text></Pressable>)}
+          </View>
+          <Text style={directedStyles.sectionLabel}>Avoid sounds in this session</Text>
+          <View style={directedStyles.chipWrap}>
+            {selectedScore.hardAvoidances.map((rule) => {
+              const selected = selectedAvoidances.includes(rule.avoidanceId);
+              return <Pressable accessibilityRole="button" accessibilityState={{ selected }} key={rule.avoidanceId} onPress={() => setAvoidances((current) => ({ ...current, [selectedSceneId]: selected ? current[selectedSceneId].filter((id) => id !== rule.avoidanceId) : [...current[selectedSceneId], rule.avoidanceId] }))} style={[directedStyles.chip, selected ? directedStyles.chipSelected : null]}><Text style={directedStyles.chipText}>{rule.label}</Text></Pressable>;
+            })}
+          </View>
+          <Text accessibilityLiveRegion="polite" style={selectedVariant.blocked || !available.startable ? directedStyles.warning : directedStyles.statusBanner}>{selectedVariant.blocked ? selectedVariant.customerCopy : customerReadinessCopy}</Text>
+          <DirectedButtonV1 label={busy ? "Starting…" : selectedVariant.blocked || !available.startable ? "Start unavailable" : "Start session"} onPress={() => void start({ sceneId: selectedSceneId, outputProfile, hardAvoidanceIds: selectedAvoidances, allowRemote: available.playingSourceMode !== "local" })} disabled={busy || selectedVariant.blocked || !available.startable} />
+          {downloadActionLabel ? <DirectedButtonV1 label={downloadActionLabel} onPress={() => { void downloadPackageForScene(selectedSceneId); }} secondary /> : null}
+          {available.state === "offline-missing" ? <DirectedButtonV1 label="Try again when online" onPress={() => void refreshAvailability()} secondary /> : null}
+          {available.state === "downloading" ? <DirectedButtonV1 label="Cancel download" onPress={() => directedSessionServiceV1.cancelDirectedPackageDownload(selectedSceneId)} secondary /> : null}
+          {message ? <Text accessibilityLiveRegion="assertive" style={directedStyles.warning}>{message}</Text> : null}
         </View>
-        <Text style={directedStyles.sectionLabel}>Avoid sounds in this session</Text>
-        <View style={directedStyles.chipWrap}>
-          {selectedScore.hardAvoidances.map((rule) => {
-            const selected = selectedAvoidances.includes(rule.avoidanceId);
-            return <Pressable accessibilityRole="button" accessibilityState={{ selected }} key={rule.avoidanceId} onPress={() => setAvoidances((current) => ({ ...current, [selectedSceneId]: selected ? current[selectedSceneId].filter((id) => id !== rule.avoidanceId) : [...current[selectedSceneId], rule.avoidanceId] }))} style={[directedStyles.chip, selected ? directedStyles.chipSelected : null]}><Text style={directedStyles.chipText}>{rule.label}</Text></Pressable>;
-          })}
-        </View>
-        <Text accessibilityLiveRegion="polite" style={selectedVariant.blocked || !available.startable ? directedStyles.warning : directedStyles.body}>{selectedVariant.blocked ? selectedVariant.customerCopy : customerReadinessCopy}</Text>
-        <DirectedButtonV1 label={busy ? "Starting…" : selectedVariant.blocked || !available.startable ? "Start unavailable" : "Start session"} onPress={() => void start({ sceneId: selectedSceneId, outputProfile, hardAvoidanceIds: selectedAvoidances, allowRemote: available.playingSourceMode !== "local" })} disabled={busy || selectedVariant.blocked || !available.startable} />
-        {available.secondaryLabel ? <DirectedButtonV1 label={available.secondaryLabel} onPress={() => {
-          if (available.secondaryLabel === "Download for offline") {
-            setBusy(true);
-            void directedSessionServiceV1.downloadDirectedPackage(selectedSceneId).then((next) => setAvailability((current) => ({ ...current, [selectedSceneId]: next }))).catch(() => setMessage("A session sound needs to be downloaded again.")).finally(() => setBusy(false));
-          } else void refreshAvailability();
-        }} secondary /> : null}
-        {available.state === "downloading" ? <DirectedButtonV1 label="Cancel download" onPress={() => directedSessionServiceV1.cancelDirectedPackageDownload(selectedSceneId)} secondary /> : null}
-        {message ? <Text accessibilityLiveRegion="assertive" style={directedStyles.warning}>{message}</Text> : null}
       </View>
     );
   };
@@ -903,6 +1035,7 @@ const directedStyles = StyleSheet.create({
   title: { color: palette.ink, fontSize: 28, lineHeight: 34, fontWeight: "800", flexShrink: 1 },
   eyebrow: { color: palette.forest, fontSize: 13, lineHeight: 18, fontWeight: "800", textTransform: "uppercase", letterSpacing: 1.2, marginTop: 12 },
   sectionTitle: { color: palette.ink, fontSize: 20, lineHeight: 26, fontWeight: "800", marginTop: 16 },
+  listSectionLabel: { color: palette.earth, fontSize: 17, lineHeight: 23, fontWeight: "800", marginTop: 22, marginBottom: 1 },
   sectionLabel: { color: palette.earth, fontSize: 16, lineHeight: 22, fontWeight: "800", marginTop: 12 },
   body: { color: palette.walnut, fontSize: 16, lineHeight: 24, flexShrink: 1 },
   meta: { color: palette.walnut, fontSize: 14, lineHeight: 21, fontWeight: "700", flexShrink: 1 },
@@ -915,9 +1048,26 @@ const directedStyles = StyleSheet.create({
   buttonSecondaryText: { color: palette.ink },
   disabled: { opacity: 0.48 },
   pressed: { opacity: 0.74 },
-  sessionCard: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.sand, padding: 14, marginTop: 12, gap: 7, overflow: "hidden" },
+  sessionCard: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: "#D8C2A3", marginTop: 12, padding: 12, gap: 10, overflow: "hidden", shadowColor: "#2E2418", shadowOpacity: 0.08, shadowRadius: 9, elevation: 2 },
+  sessionCardFeatured: { padding: 12 },
+  sessionCardCompact: { flexDirection: "column", padding: 12 },
+  sessionCardMain: { flexDirection: "row", alignItems: "stretch", gap: 12 },
+  sessionCardMainFeatured: { flexDirection: "column" },
+  sessionCardMainCompact: { flexDirection: "column" },
+  sessionArtwork: { width: 132, flexShrink: 0 },
+  sessionArtworkFeatured: { width: "100%" },
+  sessionArtworkCompact: { width: "100%" },
   sessionCardHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
-  sessionCardCopy: { flex: 1, gap: 3 },
+  sessionCardTitleBlock: { flex: 1, minWidth: 0, gap: 2 },
+  sessionCardCopy: { flex: 1, minWidth: 0, gap: 5 },
+  chevron: { color: palette.earth, width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: "#D8C2A3", fontSize: 31, lineHeight: 40, fontWeight: "700", textAlign: "center", overflow: "hidden" },
+  sessionCardFooter: { borderTopWidth: 1, borderTopColor: palette.sand, paddingTop: 10, flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  downloadState: { color: palette.forest, fontSize: 14, lineHeight: 20, fontWeight: "800", flexShrink: 1 },
+  downloadAction: { minHeight: 44, minWidth: 132, borderRadius: 14, borderWidth: 1, borderColor: palette.earth, paddingHorizontal: 16, paddingVertical: 10, alignItems: "center", justifyContent: "center", backgroundColor: palette.white },
+  downloadActionText: { color: palette.ink, fontSize: 15, lineHeight: 20, fontWeight: "800" },
+  detailCard: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: "#D8C2A3", padding: 14, marginTop: 12, shadowColor: "#2E2418", shadowOpacity: 0.08, shadowRadius: 9, elevation: 2 },
+  sessionPathCard: { backgroundColor: "#EFE4D1", borderRadius: 14, padding: 12, marginTop: 12 },
+  sessionPathCopy: { color: palette.earth, fontSize: 15, lineHeight: 23, fontWeight: "700", marginTop: 5 },
   continueCard: { backgroundColor: palette.white, borderRadius: 18, borderWidth: 1, borderColor: palette.sand, padding: 14, marginTop: 12 },
   savedCard: { backgroundColor: palette.white, borderRadius: 18, borderWidth: 1, borderColor: palette.sand, padding: 14, marginTop: 12 },
   cardTitle: { color: palette.ink, fontSize: 21, lineHeight: 27, fontWeight: "800", flexShrink: 1 },
@@ -926,33 +1076,53 @@ const directedStyles = StyleSheet.create({
   scene: { height: 92, borderRadius: 16, overflow: "hidden", position: "relative", marginVertical: 6 },
   sceneCompact: { height: 76, borderRadius: 14, opacity: 0.88 },
   staticScene: { opacity: 1 },
-  rainScene: { backgroundColor: "#7E8B8C" },
-  rainWindow: { position: "absolute", inset: 14, borderWidth: 4, borderColor: "#DCE2DE", backgroundColor: "#66787C", borderRadius: 8 },
+  rainScene: { backgroundColor: "#596F70" },
+  rainWindow: { position: "absolute", left: 18, right: 94, top: 10, height: 58, borderWidth: 3, borderColor: "#DCE2DE", backgroundColor: "#667F80", borderRadius: 8 },
   rainWindowDark: { backgroundColor: "#3F5056" },
-  rainLine: { position: "absolute", width: 2, height: 54, backgroundColor: "#D6E1DE", transform: [{ rotate: "-24deg" }], opacity: 0.72 },
-  paperSheet: { position: "absolute", width: 104, height: 82, right: 30, bottom: 18, borderRadius: 5, backgroundColor: "#F2E8D4", transform: [{ rotate: "-5deg" }] },
-  pencilTrace: { position: "absolute", width: 68, height: 3, right: 48, bottom: 58, backgroundColor: palette.earth, transform: [{ rotate: "12deg" }] },
-  porcelainScene: { backgroundColor: "#65717A" },
-  porcelainPlate: { position: "absolute", width: 132, height: 92, borderRadius: 66, backgroundColor: "#E6E0D5", left: 42, top: 38, borderWidth: 4, borderColor: "#C8BFAE" },
-  shellMark: { position: "absolute", width: 42, height: 28, borderRadius: 21, borderWidth: 4, borderColor: "#F5F0E8", left: 92, top: 68 },
-  woodArc: { position: "absolute", width: 120, height: 58, borderTopWidth: 8, borderColor: "#8A6747", right: 24, bottom: 20, borderRadius: 60 },
-  metalGlint: { position: "absolute", width: 54, height: 3, right: 30, top: 28, backgroundColor: "#E9ECE8", transform: [{ rotate: "-18deg" }] },
-  wardrobeScene: { backgroundColor: "#90786C" },
-  fabricFold: { position: "absolute", top: 15, bottom: 10, width: 56, borderRadius: 28, backgroundColor: "#C7AEA0", transform: [{ rotate: "7deg" }] },
-  leatherStitch: { position: "absolute", width: 170, height: 3, left: 44, top: 82, backgroundColor: "#4A3828", borderStyle: "dashed", borderWidth: 1 },
-  brushSweep: { position: "absolute", width: 148, height: 12, right: 14, bottom: 30, borderRadius: 8, backgroundColor: "#D8C4AF", transform: [{ rotate: "-9deg" }] },
+  rainLine: { position: "absolute", width: 1.5, height: 25, backgroundColor: "#E8EEEA", transform: [{ rotate: "12deg" }], opacity: 0.78 },
+  rainDeskSurface: { position: "absolute", left: 0, right: 0, bottom: 0, height: 35, backgroundColor: "#7B593F" },
+  rainDeskCup: { position: "absolute", left: 35, bottom: 10, width: 48, height: 20, borderRadius: 24, borderWidth: 3, borderColor: "#F2E5CF", backgroundColor: "#CBB79B" },
+  rainDeskCupHandle: { position: "absolute", left: 78, bottom: 12, width: 20, height: 14, borderRadius: 9, borderWidth: 2, borderColor: "#F2E5CF" },
+  rainDeskLampStem: { position: "absolute", right: 45, bottom: 25, width: 6, height: 48, backgroundColor: "#5B422F", transform: [{ rotate: "14deg" }] },
+  rainDeskLamp: { position: "absolute", right: 18, top: 13, width: 62, height: 24, backgroundColor: "#C99759", transform: [{ rotate: "-4deg" }] },
+  paperSheet: { position: "absolute", width: 112, height: 30, left: 102, bottom: 4, borderRadius: 2, backgroundColor: "#F2E8D4", transform: [{ rotate: "-2deg" }] },
+  pencilTrace: { position: "absolute", width: 80, height: 3, left: 130, bottom: 16, backgroundColor: palette.earth, transform: [{ rotate: "-8deg" }], opacity: 0.76 },
+  pencilTraceActive: { opacity: 1, height: 4 },
+  porcelainScene: { backgroundColor: "#718083" },
+  porcelainTableSurface: { position: "absolute", left: 0, right: 0, bottom: 0, height: 31, backgroundColor: "#866344" },
+  porcelainPlate: { position: "absolute", width: 74, height: 74, borderRadius: 38, backgroundColor: "#E9E5DA", left: 24, top: 10, borderWidth: 4, borderColor: "#C9C5B9" },
+  shellMark: { position: "absolute", width: 30, height: 20, borderRadius: 15, borderWidth: 3, borderColor: "#A99A88", left: 46, top: 38 },
+  porcelainCup: { position: "absolute", width: 38, height: 46, borderRadius: 14, backgroundColor: "#DFDDD5", right: 54, bottom: 12, borderWidth: 3, borderColor: "#BEB9AD" },
+  porcelainCupHandle: { position: "absolute", width: 18, height: 24, borderRadius: 10, right: 40, bottom: 22, borderWidth: 3, borderColor: "#DAD7CD" },
+  woodArc: { position: "absolute", width: 92, height: 28, borderTopWidth: 6, borderColor: "#D0A25F", right: 74, top: 22, borderRadius: 46, opacity: 0.76 },
+  woodArcActive: { opacity: 1 },
+  metalGlint: { position: "absolute", width: 48, height: 3, right: 108, top: 31, backgroundColor: "#F2E9D6", transform: [{ rotate: "18deg" }], opacity: 0.72 },
+  metalGlintActive: { opacity: 1, height: 4 },
+  wardrobeScene: { backgroundColor: "#7F6962" },
+  wardrobeRail: { position: "absolute", left: 18, right: 18, top: 15, height: 5, backgroundColor: "#5B4035" },
+  wardrobeHanger: { position: "absolute", top: 11, width: 34, height: 22, borderTopWidth: 2, borderLeftWidth: 2, borderRightWidth: 2, borderColor: "#D8C3AF", borderRadius: 18 },
+  fabricFold: { position: "absolute", top: 29, bottom: 7, width: 44, borderRadius: 5, backgroundColor: "#C4A99B", transform: [{ rotate: "3deg" }] },
+  leatherStitch: { position: "absolute", width: 66, height: 25, left: 20, bottom: 5, backgroundColor: "#79553E", borderRadius: 4, borderStyle: "dashed", borderWidth: 1, borderColor: "#E6CFB8", opacity: 0.76 },
+  leatherStitchActive: { opacity: 1 },
+  brushSweep: { position: "absolute", width: 86, height: 9, right: 12, bottom: 15, borderRadius: 8, backgroundColor: "#D8C4AF", transform: [{ rotate: "-14deg" }], opacity: 0.76 },
+  brushSweepActive: { opacity: 1, height: 11 },
   progressTrack: { height: 12, borderRadius: 999, backgroundColor: palette.sand, overflow: "hidden", marginVertical: 8 },
   progressCompact: { height: 7, marginVertical: 5 },
   progressFill: { height: "100%", borderRadius: 999, backgroundColor: palette.forest },
+  playerCard: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: "#D8C2A3", padding: 12, marginTop: 12, shadowColor: "#2E2418", shadowOpacity: 0.09, shadowRadius: 10, elevation: 3 },
   phaseTitle: { color: palette.ink, fontSize: 24, lineHeight: 30, fontWeight: "800" },
+  progressCopyRow: { flexDirection: "row", justifyContent: "space-between", gap: 12, marginTop: 8 },
   progressCopy: { color: palette.earth, fontSize: 16, lineHeight: 23, fontWeight: "700" },
+  progressReadOnlyCopy: { color: palette.walnut, fontSize: 13, lineHeight: 18, fontWeight: "700" },
   nextCopy: { color: palette.forest, fontSize: 17, lineHeight: 24, fontWeight: "800" },
   statusBanner: { color: palette.ink, backgroundColor: palette.white, borderRadius: 14, borderWidth: 1, borderColor: palette.sand, padding: 12, fontSize: 15, lineHeight: 22, marginTop: 8 },
   statusRow: { color: palette.earth, fontSize: 15, lineHeight: 22, fontWeight: "700", marginTop: 12 },
   transportRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 8 },
+  transportRowCompact: { flexDirection: "column", alignItems: "stretch" },
   steeringGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   steeringGridCompact: { flexDirection: "column" },
   steeringControl: { minHeight: 72, minWidth: 140, flexGrow: 1, flexBasis: "46%", borderRadius: 16, borderWidth: 1, borderColor: palette.earth, backgroundColor: palette.linen, padding: 12, justifyContent: "center" },
+  steeringControlWide: { flexBasis: "100%" },
   steeringSelected: { backgroundColor: palette.sage, borderWidth: 2, borderColor: palette.forest },
   steeringLabel: { color: palette.ink, fontSize: 16, lineHeight: 21, fontWeight: "800" },
   steeringState: { color: palette.walnut, fontSize: 13, lineHeight: 19, marginTop: 4 },
@@ -960,6 +1130,8 @@ const directedStyles = StyleSheet.create({
   choice: { minHeight: 44, minWidth: 112, borderRadius: 999, borderWidth: 1, borderColor: palette.earth, paddingHorizontal: 14, paddingVertical: 10, alignItems: "center", justifyContent: "center" },
   choiceSelected: { backgroundColor: palette.sage, borderWidth: 2, borderColor: palette.forest },
   choiceText: { color: palette.ink, fontSize: 15, lineHeight: 20, fontWeight: "800", flexShrink: 1 },
+  listeningStatusPanel: { backgroundColor: "#EFE4D1", borderRadius: 16, borderWidth: 1, borderColor: "#D8C2A3", padding: 14, marginTop: 14 },
+  streamingState: { color: palette.forest, fontSize: 15, lineHeight: 22, fontWeight: "800", marginTop: 12 },
   chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   chip: { minHeight: 44, minWidth: 44, borderRadius: 999, borderWidth: 1, borderColor: palette.earth, paddingHorizontal: 14, paddingVertical: 10, justifyContent: "center" },
   chipSelected: { backgroundColor: palette.sage, borderWidth: 2, borderColor: palette.forest },
