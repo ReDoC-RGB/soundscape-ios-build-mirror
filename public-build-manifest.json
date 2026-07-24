@@ -1,5 +1,5 @@
 {
-  "canonicalPrivateCommit": "83af7943f0cd9dfcc871c764e0a1fddfcd384d89",
+  "canonicalPrivateCommit": "f584848fccb653f14c07e0fad6fdf160a6aa7c42",
   "exportedPaths": [
     {
       "path": ".github/workflows/ios-internal.yml",
@@ -75,6 +75,11 @@
       "path": "modules/soundscape-layered-media/src/SoundscapeLayeredMediaModule.ts",
       "byteLength": 5427,
       "sha256": "5d58ad88a276d7f8e4e096711e29e0af1f0673680d0ff251c6133639db50713b"
+    },
+    {
+      "path": "modules/soundscape-layered-media/src/directedSessionJsonBridgeV1.ts",
+      "byteLength": 4492,
+      "sha256": "051b459efe863c0a9b587fc15af5b3881cddd9b7a524c3500f1a77278bcfa007"
     },
     {
       "path": "modules/soundscape-layered-media/src/nativePayload.ts",
