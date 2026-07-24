@@ -1,9 +1,9 @@
 const UNBOUND_SOURCE_COMMIT = "0000000000000000000000000000000000000000";
 const RELEASE = Object.freeze({
-  label: "Alpha 0.15.0",
-  displayLabel: "Alpha 0.15.0 — Directed Sessions Visual Convergence v1",
-  codename: "directed-sessions-visual-convergence-v1",
-  internalLabel: "Alpha 0.15.0+directed-sessions-visual-convergence-v1",
+  label: "Alpha 0.15.1",
+  displayLabel: "Alpha 0.15.1 — Classic Visual Cohesion and Session End Fix",
+  codename: "classic-visual-cohesion-session-end-fix-v1",
+  internalLabel: "Alpha 0.15.1+classic-visual-cohesion-session-end-fix-v1",
 });
 
 module.exports = ({ config }) => {

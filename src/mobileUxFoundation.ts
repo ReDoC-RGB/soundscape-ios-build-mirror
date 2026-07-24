@@ -36,6 +36,7 @@ export type MiniPlayerStatusMetadataInput = {
   activePlaybackStatusLabel: string;
   choiceRequired: boolean;
   timerLabel: string | null;
+  compact?: boolean;
 };
 
 export function getMiniPlayerStatusMetadata({
@@ -44,6 +45,7 @@ export function getMiniPlayerStatusMetadata({
   activePlaybackStatusLabel,
   choiceRequired,
   timerLabel,
+  compact = false,
 }: MiniPlayerStatusMetadataInput): string {
   if (choiceRequired || timerLabel) {
     return [choiceRequired ? "Choice" : null, timerLabel].filter(Boolean).join(" · ");
@@ -51,7 +53,9 @@ export function getMiniPlayerStatusMetadata({
   if (sessionType === "recipe") {
     return `${activeLayerCount} layer${activeLayerCount === 1 ? "" : "s"}`;
   }
-  return `${activePlaybackStatusLabel} · Tap for Player`;
+  return compact
+    ? `${activePlaybackStatusLabel} · Player`
+    : `${activePlaybackStatusLabel} · Tap for Player`;
 }
 
 export function shouldStackMiniPlayer(screenWidth: number, fontScale: number): boolean {

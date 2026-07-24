@@ -46,6 +46,12 @@ import {
   shouldAcceptDirectedProjectionV1,
   shouldPersistDirectedProjectionV1,
 } from "../directedSessions/foregroundProjectionPolicyV1";
+import {
+  createDirectedTerminalEndFenceV1,
+  isDirectedProjectionFencedByTerminalEndV1,
+  isRecoverableDirectedCheckpointV1,
+  type DirectedTerminalEndFenceV1,
+} from "../directedSessions/directedContinuationPolicyV1";
 
 export const DIRECTED_SESSION_SCHEDULER_VERSION_V1 = 1 as const;
 const DIRECTED_OFFLINE_QUOTA_BYTES = 250 * 1024 * 1024;
@@ -210,6 +216,10 @@ export class DirectedSessionServiceV1 {
   private nativeStateAcceptance: Promise<void> = Promise.resolve();
   private nativeStateEpoch = 0;
   private lastPersistedNativeState: NativeDirectedSessionStateV1 | null = null;
+  private terminalEndFence: DirectedTerminalEndFenceV1 | null = null;
+  private lastExplicitlyEndedState: NativeDirectedSessionStateV1 | null = null;
+  private explicitEndInFlight: Promise<NativeDirectedSessionStateV1> | null = null;
+  private terminalEndPersistenceVerified = true;
   private activationDiagnostic: DirectedActivationDiagnosticV1 | null = null;
 
   constructor() {
@@ -333,7 +343,10 @@ export class DirectedSessionServiceV1 {
   }
 
   async loadCheckpoint(): Promise<DirectedSessionStateV1 | null> {
-    return parseDirectedCheckpointV1(await AsyncStorage.getItem(DIRECTED_SESSION_STATE_STORAGE_KEY_V1));
+    const checkpoint = parseDirectedCheckpointV1(await AsyncStorage.getItem(DIRECTED_SESSION_STATE_STORAGE_KEY_V1));
+    if (isRecoverableDirectedCheckpointV1(checkpoint)) return checkpoint;
+    if (checkpoint) await AsyncStorage.removeItem(DIRECTED_SESSION_STATE_STORAGE_KEY_V1);
+    return null;
   }
 
   async getManifestItems(): Promise<readonly OfflineManifestItemV1[]> {
@@ -514,6 +527,8 @@ export class DirectedSessionServiceV1 {
         ["playing"],
         { acknowledgement: "native-play-acknowledgement", owner: "native-owner-confirmation" },
       );
+      this.lastExplicitlyEndedState = null;
+      this.terminalEndPersistenceVerified = true;
       this.projectActivationResult("SUCCESS", "DIRECTED_COMMAND_ACCEPTED");
       return playing;
     } catch (error) {
@@ -538,6 +553,65 @@ export class DirectedSessionServiceV1 {
       this.projectActivationResult("FAILURE", this.activationDiagnostic?.code ?? "DIRECTED_ACTIVATION_FAILED", error);
       throw error;
     }
+  }
+
+  async endDirectedSession(): Promise<NativeDirectedSessionStateV1> {
+    if (this.explicitEndInFlight) return this.explicitEndInFlight;
+    if (!this.current && this.lastExplicitlyEndedState) {
+      if (!await this.retireDirectedContinuationAuthorityV1(this.lastExplicitlyEndedState)) {
+        throw new Error("DIRECTED_EXPLICIT_END_PERSISTENCE_UNVERIFIED");
+      }
+      return this.lastExplicitlyEndedState;
+    }
+    const pending = this.performExplicitEnd();
+    this.explicitEndInFlight = pending;
+    try {
+      return await pending;
+    } finally {
+      if (this.explicitEndInFlight === pending) this.explicitEndInFlight = null;
+    }
+  }
+
+  private async performExplicitEnd(): Promise<NativeDirectedSessionStateV1> {
+    const state = this.requireCurrent();
+    const operationId = state.lastAcceptedOperationId + 1;
+    const command: NativeDirectedTransportCommandV1 = {
+      sessionId: state.sessionId,
+      generationId: state.generationId,
+      operationId,
+      expectedPhaseRevision: state.phaseRevision,
+      expectedPathRevision: state.pathRevision,
+      idempotencyKey: `${state.sessionId}:stop:${operationId}`,
+      type: "stop",
+      endedReason: "user-ended",
+    };
+    const stopped = await NativeMedia.dispatchDirectedSession(command);
+    const acknowledgement = stopped?.lastAcknowledgement;
+    if (
+      !finiteNativeState(stopped)
+      || stopped.sessionId !== command.sessionId
+      || stopped.generationId !== command.generationId
+      || stopped.operationId !== command.operationId
+      || stopped.lastAcceptedOperationId !== command.operationId
+      || stopped.transport !== "stopped"
+      || stopped.endedReason !== "user-ended"
+      || acknowledgement?.status !== "accepted"
+      || acknowledgement.operationId !== command.operationId
+      || acknowledgement.idempotencyKey !== command.idempotencyKey
+    ) throw new Error("DIRECTED_EXPLICIT_END_NOT_ACKNOWLEDGED");
+    const aggregate = await NativeMedia.queryState();
+    if (
+      aggregate.sessionType !== "directed"
+      || aggregate.sessionId !== command.sessionId
+      || aggregate.generationId !== command.generationId
+      || aggregate.operationId !== command.operationId
+    ) throw new Error("DIRECTED_EXPLICIT_END_OWNER_MISMATCH");
+    await this.acceptNativeState(stopped);
+    if (!this.terminalEndPersistenceVerified) throw new Error("DIRECTED_EXPLICIT_END_PERSISTENCE_UNVERIFIED");
+    if (this.current?.sessionId === command.sessionId && this.current.generationId === command.generationId) {
+      throw new Error("DIRECTED_EXPLICIT_END_LOCAL_AUTHORITY_RETAINED");
+    }
+    return stopped;
   }
 
   async dispatchDirectedSession(type: "play" | "pause" | "resume" | "stop", endedReason?: NativeDirectedTransportCommandV1["endedReason"]): Promise<NativeDirectedSessionStateV1> {
@@ -744,7 +818,18 @@ export class DirectedSessionServiceV1 {
     if (!finiteNativeState(state)) return this.current;
     await this.enqueueNativeState(async () => {
       const previous = this.current;
+      if (isDirectedProjectionFencedByTerminalEndV1(this.terminalEndFence, state)) return;
       if (!shouldAcceptDirectedProjectionV1(previous, state)) return;
+      if (state.transport === "stopped" && state.endedReason === "user-ended") {
+        this.terminalEndFence = createDirectedTerminalEndFenceV1(state);
+        this.lastExplicitlyEndedState = state;
+        this.terminalEndPersistenceVerified = await this.retireDirectedContinuationAuthorityV1(state);
+        if (this.current?.sessionId === state.sessionId && this.current.generationId === state.generationId) {
+          this.current = null;
+          for (const listener of this.listeners) listener(null);
+        }
+        return;
+      }
       this.current = state;
       for (const listener of this.listeners) listener(state);
       if (!shouldPersistDirectedProjectionV1(this.lastPersistedNativeState, state)) return;
@@ -758,6 +843,27 @@ export class DirectedSessionServiceV1 {
       }
     });
     return this.current;
+  }
+
+  private async retireDirectedContinuationAuthorityV1(state: NativeDirectedSessionStateV1): Promise<boolean> {
+    let terminalStatePersisted = false;
+    let checkpointRemoved = false;
+    try {
+      await AsyncStorage.setItem(DIRECTED_SESSION_STATE_STORAGE_KEY_V1, serializeDirectedCheckpointV1(nativeStateToCheckpoint(state)));
+      terminalStatePersisted = true;
+    } catch {
+      terminalStatePersisted = false;
+    }
+    try {
+      await AsyncStorage.removeItem(DIRECTED_SESSION_STATE_STORAGE_KEY_V1);
+      checkpointRemoved = true;
+    } catch {
+      checkpointRemoved = false;
+    }
+    if (this.lastPersistedNativeState?.sessionId === state.sessionId && this.lastPersistedNativeState.generationId === state.generationId) {
+      this.lastPersistedNativeState = null;
+    }
+    return terminalStatePersisted || checkpointRemoved;
   }
 
   private clearExactLocalOwner(sessionId: string, generationId: number): Promise<void> {

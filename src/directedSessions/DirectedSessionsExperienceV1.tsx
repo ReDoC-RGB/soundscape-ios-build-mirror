@@ -45,6 +45,16 @@ import {
   projectDirectedRemoteFreshnessAvailabilityV1,
   type DirectedRemoteFreshnessStatusV1,
 } from "./readinessCoordinatorV1";
+import { DirectedCheckpointProjectionEpochV1, isRecoverableDirectedCheckpointV1 } from "./directedContinuationPolicyV1";
+import {
+  classicComponentTokensV1,
+  classicVisualPaletteV1,
+  classicVisualThemeV1,
+} from "../ui/classicVisualAuthorityV1";
+import {
+  resolveClassicMiniPlayerOverlayLayoutV1,
+  type ClassicMiniPlayerOverlayMetricsV1,
+} from "../ui/classicMiniPlayerOverlayLayoutV1";
 
 export type DirectedClassicRouteV1 = "fast-start" | "browse" | "presets" | "player" | "saved-mixes" | "saved-sounds" | "settings";
 export type DirectedTabV1 = "sessions" | "library" | "saved";
@@ -72,19 +82,6 @@ const initialAvailability = (sceneId: DirectedSceneIdV1): DirectedAvailabilityPr
 });
 
 const DIRECTED_SCENE_IDS_V1 = Object.freeze(directedSceneScoresV1.map((score) => score.sceneId));
-
-const palette = Object.freeze({
-  linen: "#F5F0E8",
-  sand: "#E8DCCA",
-  ink: "#2E2418",
-  walnut: "#665746",
-  earth: "#4A3828",
-  candle: "#C4935A",
-  sage: "#C8D4BE",
-  forest: "#344830",
-  warning: "#7A3E2D",
-  white: "#FFFFFF",
-});
 
 const stripLayerPrefix = (value: string | null) => value?.replace(/^directed:/, "") ?? null;
 const nextLevel = (value: 0 | 1 | 2): 0 | 1 | 2 => value === 0 ? 1 : value === 1 ? 2 : 0;
@@ -490,6 +487,8 @@ function SessionCardV1(props: Readonly<{
 
 export function DirectedSessionsExperienceV1(props: Readonly<{
   initialTab?: DirectedTabV1;
+  classicMiniPlayerOverlay: ClassicMiniPlayerOverlayMetricsV1;
+  onClassicOverlayLayoutChange: (bottomOffset: number) => void;
   onOpenClassicLibraryRoute: (route: DirectedClassicRouteV1, returnTab: DirectedTabV1) => void;
 }>) {
   const { width, fontScale } = useWindowDimensions();
@@ -521,11 +520,12 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
   const [message, setMessage] = useState<string | null>(null);
   const [completionSaved, setCompletionSaved] = useState(false);
   const [directedAppState, setDirectedAppState] = useState<DirectedProjectionAppStateV1>(AppState.currentState);
-  const [bottomNavMeasuredHeight, setBottomNavMeasuredHeight] = useState(58 + insets.bottom);
+  const [bottomNavigationContentHeight, setBottomNavigationContentHeight] = useState(58);
   const [miniPlayerMeasuredHeight, setMiniPlayerMeasuredHeight] = useState(compact ? 118 : 82);
   const projectionInFlight = useRef<Promise<NativeDirectedSessionStateV1 | null> | null>(null);
   const mountedRef = useRef(false);
   const lifecycleEpochRef = useRef(0);
+  const checkpointProjectionEpochRef = useRef(new DirectedCheckpointProjectionEpochV1());
   const availabilityRequestIdRef = useRef(0);
   const readinessCoordinator = useMemo(() => createDirectedReadinessCoordinatorV1({
     loadStable: () => directedSessionServiceV1.getStableAvailabilities(DIRECTED_SCENE_IDS_V1),
@@ -595,15 +595,18 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
     const removePackage = directedSessionServiceV1.addPackageListener((sceneId, next) => {
       if (mountedRef.current && lifecycleEpochRef.current === lifecycleEpoch) setAvailability((current) => ({ ...current, [sceneId]: next }));
     });
+    const checkpointProjectionEpoch = checkpointProjectionEpochRef.current.capture();
+    void directedSessionServiceV1.loadCheckpoint().then((storedCheckpoint) => {
+      if (!mountedRef.current || lifecycleEpochRef.current !== lifecycleEpoch || !checkpointProjectionEpochRef.current.isCurrent(checkpointProjectionEpoch)) return;
+      setCheckpoint(storedCheckpoint);
+    });
     void Promise.all([
       refreshAvailability(),
       projectCurrentFromNative(),
-      directedSessionServiceV1.loadCheckpoint(),
       directedSessionServiceV1.loadSavedPaths(),
-    ]).then(([, , storedCheckpoint, storedPaths]) => {
+    ]).then(([, , storedPaths]) => {
       if (!mountedRef.current || lifecycleEpochRef.current !== lifecycleEpoch) return;
       setNativeState(directedSessionServiceV1.currentDirectedSession());
-      setCheckpoint(storedCheckpoint);
       setSavedPaths(storedPaths);
     });
     const appState = AppState.addEventListener("change", (next) => {
@@ -613,6 +616,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
     });
     return () => {
       mountedRef.current = false;
+      checkpointProjectionEpochRef.current.supersede();
       availabilityRequestIdRef.current += 1;
       readinessCoordinator.supersede();
       if (lifecycleEpochRef.current === lifecycleEpoch) lifecycleEpochRef.current += 1;
@@ -655,6 +659,8 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
     try {
       const state = await directedSessionServiceV1.createDirectedSession(input);
       if (!canSettleUi(lifecycleEpoch, state)) return;
+      checkpointProjectionEpochRef.current.supersede();
+      setCheckpoint(null);
       setNativeState(state);
       setSelectedSceneId(state.sceneId as DirectedSceneIdV1);
       setScreen("player");
@@ -683,10 +689,14 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
     { text: "End session", style: "destructive", onPress: () => {
       const lifecycleEpoch = lifecycleEpochRef.current;
       setBusy(true);
-      void directedSessionServiceV1.dispatchDirectedSession("stop", "user-ended").then((state) => {
-        if (!canSettleUi(lifecycleEpoch, state)) return;
-        setNativeState(state);
+      void directedSessionServiceV1.endDirectedSession().then(() => {
+        if (!canSettleUi(lifecycleEpoch)) return;
+        checkpointProjectionEpochRef.current.supersede();
+        setCheckpoint(null);
+        setNativeState(null);
         setScreen("ended");
+      }).catch(() => {
+        if (canSettleUi(lifecycleEpoch)) setMessage("The session stopped, but continuation cleanup could not be verified. Try End session again.");
       }).finally(() => { if (canSettleUi(lifecycleEpoch)) setBusy(false); });
     } },
   ]);
@@ -814,7 +824,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
           <Text style={directedStyles.body}>{nativeState.phaseLabel} · {formatDirectedTimeV1(nativeState.playedElapsedMs)} played · {formatDirectedTimeV1(Math.max(0, nativeState.durationMs - nativeState.playedElapsedMs))} left</Text>
           <DirectedButtonV1 label="Open Player" onPress={() => setScreen("player")} />
         </View>
-      ) : checkpoint && !checkpoint.completionEligible && checkpoint.transport !== "completed" ? (
+      ) : checkpoint && isRecoverableDirectedCheckpointV1(checkpoint) ? (
         <View style={directedStyles.continueCard}>
           <Text style={directedStyles.sectionLabel}>Continue</Text>
           <Text style={directedStyles.cardTitle}>{checkpoint.title}</Text>
@@ -853,10 +863,13 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
     <View>
       <Text accessibilityRole="header" style={directedStyles.title}>Library</Text>
       <Text style={directedStyles.body}>Classic sounds and static mixes remain available here.</Text>
-      <DirectedButtonV1 label="Find a sound" onPress={() => openClassic("fast-start")} />
-      <DirectedButtonV1 label="Browse sounds" onPress={() => openClassic("browse")} secondary />
-      <DirectedButtonV1 label="Presets" onPress={() => openClassic("presets")} secondary />
-      <DirectedButtonV1 label="Build a mix" onPress={() => openClassic("presets")} secondary />
+      <View style={directedStyles.gatewayCard}>
+        <Text style={directedStyles.sectionTitle}>Choose how to listen</Text>
+        <DirectedButtonV1 label="Find a sound" onPress={() => openClassic("fast-start")} />
+        <DirectedButtonV1 label="Browse sounds" onPress={() => openClassic("browse")} secondary />
+        <DirectedButtonV1 label="Presets" onPress={() => openClassic("presets")} secondary />
+        <DirectedButtonV1 label="Build a mix" onPress={() => openClassic("presets")} secondary />
+      </View>
     </View>
   );
 
@@ -888,10 +901,12 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
           </View>
         </View>
       ))}
-      <Text style={directedStyles.sectionTitle}>Mixes</Text>
-      <DirectedButtonV1 label="Open saved mixes" onPress={() => openClassic("saved-mixes")} secondary />
-      <Text style={directedStyles.sectionTitle}>Sounds</Text>
-      <DirectedButtonV1 label="Open saved sounds" onPress={() => openClassic("saved-sounds")} secondary />
+      <View style={directedStyles.gatewayCard}>
+        <Text style={directedStyles.sectionTitle}>Mixes</Text>
+        <DirectedButtonV1 label="Open saved mixes" onPress={() => openClassic("saved-mixes")} secondary />
+        <Text style={directedStyles.sectionTitle}>Sounds</Text>
+        <DirectedButtonV1 label="Open saved sounds" onPress={() => openClassic("saved-sounds")} secondary />
+      </View>
     </View>
   );
 
@@ -958,13 +973,13 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
   };
 
   const content = (() => {
-    if (capabilityReady === null) return <View style={directedStyles.center}><ActivityIndicator color={palette.earth} /><Text style={directedStyles.body}>Checking this session…</Text></View>;
+    if (capabilityReady === null) return <View style={directedStyles.center}><ActivityIndicator color={classicVisualThemeV1.accentDeep} /><Text style={directedStyles.body}>Checking this session…</Text></View>;
     if (!capabilityReady) return <View><Text accessibilityRole="alert" style={directedStyles.title}>Sessions are unavailable in this build.</Text><DirectedButtonV1 label="Open Library" onPress={() => setTab("library")} /><DirectedButtonV1 label="Try again" onPress={() => void refreshAvailability()} secondary /></View>;
     if (screen === "detail") return renderDetail();
     if (screen === "player" && nativeState) return <DirectedPlayerV1 state={nativeState} reduceMotionEnabled={reduceMotionEnabled} compact={compact} sendingControl={sendingControl} backLabel={`Back to ${tab === "sessions" ? "Sessions" : tab === "library" ? "Library" : "Saved"}`} onBack={() => setScreen("root")} onTransport={() => void handleTransport()} onEnd={endSession} onSteer={(axis) => void steer(axis)} onTexture={() => void texture()} onUndo={() => void undo()} onProfile={(next) => void profile(next)} onAdjust={() => setScreen("adjust")} />;
     if (screen === "adjust" && nativeState) return <DirectedAdjustV1 state={nativeState} busy={sendingControl !== null} onBack={() => setScreen("player")} onTrim={(layerId, trimDb) => void adjustLayer(layerId, { trimDb })} onToggle={(layerId, enabled) => void adjustLayer(layerId, { enabled })} />;
     if (screen === "completion" && nativeState) return <DirectedCompletionV1 state={nativeState} saved={completionSaved} busy={busy} message={message} onReplayPath={() => void replay("path")} onReplayOriginal={() => void replay("original")} onSave={() => { setBusy(true); void directedSessionServiceV1.saveCompletedPath(`${nativeState.title} path`).then((saved) => { setCompletionSaved(true); setMessage("Path saved on this device."); setSavedPaths((current) => [...current, saved]); }).catch(() => setMessage("This path wasn’t saved. Your completed session is unchanged.")).finally(() => setBusy(false)); }} onMore={() => { setScreen("root"); setTab("sessions"); }} onFeedback={(value) => void directedSessionServiceV1.saveFeedback(value).then(() => setMessage("Feedback saved on this device."))} />;
-    if (screen === "ended") return <View><Text accessibilityRole="header" style={directedStyles.title}>Session ended early</Text><Text style={directedStyles.body}>This was not saved as a completed path.</Text><DirectedButtonV1 label="Start over" onPress={() => setScreen("detail")} /><DirectedButtonV1 label="Back to Sessions" onPress={() => { setScreen("root"); setTab("sessions"); }} secondary /></View>;
+    if (screen === "ended") return <View style={directedStyles.endedCard}><Text accessibilityRole="header" style={directedStyles.title}>Session ended early</Text><Text style={directedStyles.body}>This was not saved as a completed path.</Text><DirectedButtonV1 label="Start over" onPress={() => setScreen("detail")} /><DirectedButtonV1 label="Back to Sessions" onPress={() => { setScreen("root"); setTab("sessions"); }} secondary /></View>;
     if (screen === "failure") return <View><Text accessibilityLiveRegion="assertive" accessibilityRole="alert" style={directedStyles.title}>The session stopped because a sound became unavailable.</Text><Text style={directedStyles.body}>No completion was recorded.</Text><DirectedButtonV1 label="Retry" onPress={() => setScreen("detail")} /><DirectedButtonV1 label="Back to Sessions" onPress={() => { setScreen("root"); setTab("sessions"); }} secondary /></View>;
     const rootContent = tab === "sessions" ? renderSessions() : tab === "library" ? renderLibrary() : renderSaved();
     return <View>{rootContent}{message ? <Text accessibilityLiveRegion="assertive" accessibilityRole="alert" style={directedStyles.warning}>{message}</Text> : null}</View>;
@@ -972,12 +987,24 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
 
   const showRootChrome = screen === "root";
   const showMini = nativeState && ["playing", "paused", "interrupted"].includes(nativeState.transport) && screen !== "player" && screen !== "adjust" && screen !== "completion";
-  const miniPlayerBottom = showRootChrome ? bottomNavMeasuredHeight + 10 : insets.bottom + 12;
-  const contentBottomPadding = showMini
-    ? miniPlayerBottom + miniPlayerMeasuredHeight + 16
-    : showRootChrome
-      ? bottomNavMeasuredHeight + 20
-      : 28 + insets.bottom;
+  const anyMiniPlayerPresent = Boolean(showMini || props.classicMiniPlayerOverlay.present);
+  const activeMiniPlayerHeight = Math.max(
+    showMini ? miniPlayerMeasuredHeight : 0,
+    props.classicMiniPlayerOverlay.present ? props.classicMiniPlayerOverlay.height : 0,
+  );
+  const overlayLayout = resolveClassicMiniPlayerOverlayLayoutV1({
+    miniPlayerPresent: anyMiniPlayerPresent,
+    miniPlayerHeight: activeMiniPlayerHeight,
+    bottomNavigationVisible: showRootChrome,
+    bottomNavigationContentHeight,
+    safeAreaBottom: insets.bottom,
+    spacing: classicComponentTokensV1.spacing.md,
+  });
+  const miniPlayerBottom = overlayLayout.overlayBottom;
+  const contentBottomPadding = overlayLayout.contentBottomPadding;
+  useEffect(() => {
+    props.onClassicOverlayLayoutChange(overlayLayout.overlayBottom);
+  }, [overlayLayout.overlayBottom, props.onClassicOverlayLayoutChange]);
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={directedStyles.safeAreaShell}>
       <View style={directedStyles.topBar}>
@@ -1002,10 +1029,14 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
       {showRootChrome ? (
         <SafeAreaView
           edges={["bottom", "left", "right"]}
-          onLayout={({ nativeEvent }) => setBottomNavMeasuredHeight(nativeEvent.layout.height)}
           style={directedStyles.bottomNavSafeArea}
         >
-          <View accessibilityLabel="Directed session navigation" accessibilityRole="tablist" style={directedStyles.bottomNav}>
+          <View
+            accessibilityLabel="Directed session navigation"
+            accessibilityRole="tablist"
+            onLayout={({ nativeEvent }) => setBottomNavigationContentHeight(nativeEvent.layout.height)}
+            style={directedStyles.bottomNav}
+          >
             {directedNavigationV1.map((item) => (
               <Pressable
                 accessibilityRole="tab"
@@ -1025,30 +1056,30 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
 }
 
 const directedStyles = StyleSheet.create({
-  safeAreaShell: { flex: 1, backgroundColor: palette.linen },
-  topBar: { minHeight: 56, paddingHorizontal: 16, paddingVertical: 6, backgroundColor: palette.linen, borderBottomWidth: 1, borderBottomColor: palette.sand, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  brand: { color: palette.ink, fontSize: 21, lineHeight: 25, fontWeight: "800", flexShrink: 1 },
-  headerSettings: { minHeight: 44, minWidth: 44, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: palette.earth, backgroundColor: palette.white, alignItems: "center", justifyContent: "center" },
-  headerSettingsText: { color: palette.earth, fontSize: 14, lineHeight: 19, fontWeight: "800" },
-  content: { padding: 16, paddingBottom: 28, gap: 12 },
+  safeAreaShell: { flex: 1, backgroundColor: classicVisualThemeV1.background },
+  topBar: { minHeight: classicComponentTokensV1.controlMinHeight, paddingHorizontal: classicComponentTokensV1.cardPadding, paddingVertical: classicComponentTokensV1.spacing.xs, marginHorizontal: classicComponentTokensV1.sectionPadding, marginTop: classicComponentTokensV1.spacing.xs, backgroundColor: classicVisualThemeV1.elevated, borderRadius: classicComponentTokensV1.radius.card, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: classicComponentTokensV1.spacing.sm },
+  brand: { color: classicVisualThemeV1.text, fontSize: 28, lineHeight: 34, fontWeight: "900", flexShrink: 1 },
+  headerSettings: { minHeight: classicComponentTokensV1.controlMinHeight, minWidth: classicComponentTokensV1.controlMinHeight, paddingHorizontal: 12, paddingVertical: 6, borderRadius: classicComponentTokensV1.radius.chip, borderWidth: 1, borderColor: classicVisualThemeV1.accentDeep, backgroundColor: classicVisualThemeV1.elevated, alignItems: "center", justifyContent: "center" },
+  headerSettingsText: { color: classicVisualThemeV1.accentSeaGlass, fontSize: 13, lineHeight: 18, fontWeight: "900" },
+  content: { padding: classicComponentTokensV1.sectionPadding, paddingBottom: 28, gap: classicComponentTokensV1.spacing.md },
   center: { minHeight: 280, alignItems: "center", justifyContent: "center", gap: 12 },
-  title: { color: palette.ink, fontSize: 28, lineHeight: 34, fontWeight: "800", flexShrink: 1 },
-  eyebrow: { color: palette.forest, fontSize: 13, lineHeight: 18, fontWeight: "800", textTransform: "uppercase", letterSpacing: 1.2, marginTop: 12 },
-  sectionTitle: { color: palette.ink, fontSize: 20, lineHeight: 26, fontWeight: "800", marginTop: 16 },
-  listSectionLabel: { color: palette.earth, fontSize: 17, lineHeight: 23, fontWeight: "800", marginTop: 22, marginBottom: 1 },
-  sectionLabel: { color: palette.earth, fontSize: 16, lineHeight: 22, fontWeight: "800", marginTop: 12 },
-  body: { color: palette.walnut, fontSize: 16, lineHeight: 24, flexShrink: 1 },
-  meta: { color: palette.walnut, fontSize: 14, lineHeight: 21, fontWeight: "700", flexShrink: 1 },
-  warning: { color: palette.warning, backgroundColor: palette.sand, borderRadius: 12, padding: 12, fontSize: 16, lineHeight: 23, fontWeight: "700" },
-  button: { minHeight: 44, minWidth: 44, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 10, backgroundColor: palette.earth, alignItems: "center", justifyContent: "center", marginTop: 8, flexShrink: 1 },
-  buttonSecondary: { backgroundColor: palette.white, borderWidth: 1, borderColor: palette.earth },
-  buttonDestructive: { backgroundColor: palette.warning },
-  buttonSelected: { backgroundColor: palette.forest },
-  buttonText: { color: palette.linen, fontSize: 16, lineHeight: 21, fontWeight: "800", textAlign: "center", flexShrink: 1 },
-  buttonSecondaryText: { color: palette.ink },
+  title: { color: classicVisualThemeV1.text, fontSize: 28, lineHeight: 34, fontWeight: "800", flexShrink: 1 },
+  eyebrow: { color: classicVisualThemeV1.accentMist, fontSize: 12, lineHeight: 17, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.4, marginTop: 12 },
+  sectionTitle: { color: classicVisualThemeV1.text, fontSize: 20, lineHeight: 26, fontWeight: "800", marginTop: 16 },
+  listSectionLabel: { color: classicVisualPaletteV1.darkEarth, fontSize: 17, lineHeight: 23, fontWeight: "800", marginTop: 22, marginBottom: 1 },
+  sectionLabel: { color: classicVisualPaletteV1.darkEarth, fontSize: 16, lineHeight: 22, fontWeight: "800", marginTop: 12 },
+  body: { color: classicVisualThemeV1.textMuted, fontSize: 16, lineHeight: 24, flexShrink: 1 },
+  meta: { color: classicVisualThemeV1.textMuted, fontSize: 14, lineHeight: 21, fontWeight: "700", flexShrink: 1 },
+  warning: { color: classicVisualThemeV1.dangerText, backgroundColor: classicVisualThemeV1.warningSurface, borderRadius: classicComponentTokensV1.radius.control, borderWidth: 1, borderColor: classicVisualThemeV1.dangerText, padding: 12, fontSize: 16, lineHeight: 23, fontWeight: "700" },
+  button: { minHeight: classicComponentTokensV1.controlMinHeight, minWidth: classicComponentTokensV1.controlMinHeight, borderRadius: classicComponentTokensV1.radius.chip, paddingHorizontal: 20, paddingVertical: 14, backgroundColor: classicVisualThemeV1.accentDeep, alignItems: "center", justifyContent: "center", marginTop: 8, flexShrink: 1 },
+  buttonSecondary: { backgroundColor: classicVisualThemeV1.elevated, borderWidth: 1, borderColor: classicVisualThemeV1.accentDeep },
+  buttonDestructive: { backgroundColor: classicVisualThemeV1.warningSurface, borderWidth: 2, borderColor: classicVisualThemeV1.dangerText },
+  buttonSelected: { backgroundColor: classicVisualThemeV1.selectedSurface, borderWidth: 2, borderColor: classicVisualThemeV1.accentDeep },
+  buttonText: { color: classicVisualThemeV1.text, fontSize: 16, lineHeight: 21, fontWeight: "800", textAlign: "center", flexShrink: 1 },
+  buttonSecondaryText: { color: classicVisualThemeV1.accentSeaGlass },
   disabled: { opacity: 0.48 },
   pressed: { opacity: 0.74 },
-  sessionCard: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: "#D8C2A3", marginTop: 12, padding: 12, gap: 10, overflow: "hidden", shadowColor: "#2E2418", shadowOpacity: 0.08, shadowRadius: 9, elevation: 2 },
+  sessionCard: { backgroundColor: classicVisualThemeV1.elevated, borderRadius: classicComponentTokensV1.radius.card, borderWidth: 1, borderColor: classicVisualThemeV1.borderStrong, marginTop: 12, padding: classicComponentTokensV1.cardPadding, gap: 10, overflow: "hidden" },
   sessionCardFeatured: { padding: 12 },
   sessionCardCompact: { flexDirection: "column", padding: 12 },
   sessionCardMain: { flexDirection: "row", alignItems: "stretch", gap: 12 },
@@ -1060,19 +1091,21 @@ const directedStyles = StyleSheet.create({
   sessionCardHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
   sessionCardTitleBlock: { flex: 1, minWidth: 0, gap: 2 },
   sessionCardCopy: { flex: 1, minWidth: 0, gap: 5 },
-  chevron: { color: palette.earth, width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: "#D8C2A3", fontSize: 31, lineHeight: 40, fontWeight: "700", textAlign: "center", overflow: "hidden" },
-  sessionCardFooter: { borderTopWidth: 1, borderTopColor: palette.sand, paddingTop: 10, flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 10 },
-  downloadState: { color: palette.forest, fontSize: 14, lineHeight: 20, fontWeight: "800", flexShrink: 1 },
-  downloadAction: { minHeight: 44, minWidth: 132, borderRadius: 14, borderWidth: 1, borderColor: palette.earth, paddingHorizontal: 16, paddingVertical: 10, alignItems: "center", justifyContent: "center", backgroundColor: palette.white },
-  downloadActionText: { color: palette.ink, fontSize: 15, lineHeight: 20, fontWeight: "800" },
-  detailCard: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: "#D8C2A3", padding: 14, marginTop: 12, shadowColor: "#2E2418", shadowOpacity: 0.08, shadowRadius: 9, elevation: 2 },
-  sessionPathCard: { backgroundColor: "#EFE4D1", borderRadius: 14, padding: 12, marginTop: 12 },
-  sessionPathCopy: { color: palette.earth, fontSize: 15, lineHeight: 23, fontWeight: "700", marginTop: 5 },
-  continueCard: { backgroundColor: palette.white, borderRadius: 18, borderWidth: 1, borderColor: palette.sand, padding: 14, marginTop: 12 },
-  savedCard: { backgroundColor: palette.white, borderRadius: 18, borderWidth: 1, borderColor: palette.sand, padding: 14, marginTop: 12 },
-  cardTitle: { color: palette.ink, fontSize: 21, lineHeight: 27, fontWeight: "800", flexShrink: 1 },
-  cardTrajectory: { color: palette.forest, fontSize: 16, lineHeight: 22, fontWeight: "800" },
-  offlinePill: { alignSelf: "flex-start", color: palette.forest, backgroundColor: palette.sage, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, fontSize: 13, fontWeight: "800", overflow: "hidden" },
+  chevron: { color: classicVisualThemeV1.accentSeaGlass, width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: classicVisualThemeV1.accentDeep, fontSize: 31, lineHeight: 40, fontWeight: "700", textAlign: "center", overflow: "hidden" },
+  sessionCardFooter: { borderTopWidth: 1, borderTopColor: classicVisualPaletteV1.sand, paddingTop: 10, flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  downloadState: { color: classicVisualThemeV1.accentMist, fontSize: 14, lineHeight: 20, fontWeight: "800", flexShrink: 1 },
+  downloadAction: { minHeight: classicComponentTokensV1.controlMinHeight, minWidth: 132, borderRadius: classicComponentTokensV1.radius.control, borderWidth: 1, borderColor: classicVisualThemeV1.accentDeep, paddingHorizontal: 16, paddingVertical: 10, alignItems: "center", justifyContent: "center", backgroundColor: classicVisualThemeV1.elevated },
+  downloadActionText: { color: classicVisualThemeV1.text, fontSize: 15, lineHeight: 20, fontWeight: "800" },
+  detailCard: { backgroundColor: classicVisualThemeV1.elevated, borderRadius: classicComponentTokensV1.radius.card, borderWidth: 1, borderColor: classicVisualThemeV1.borderStrong, padding: classicComponentTokensV1.sectionPadding, marginTop: 12 },
+  sessionPathCard: { backgroundColor: classicVisualThemeV1.surface, borderRadius: classicComponentTokensV1.radius.card, borderWidth: 1, borderColor: classicVisualThemeV1.border, padding: 12, marginTop: 12 },
+  sessionPathCopy: { color: classicVisualPaletteV1.darkEarth, fontSize: 15, lineHeight: 23, fontWeight: "700", marginTop: 5 },
+  continueCard: { backgroundColor: classicVisualThemeV1.elevated, borderRadius: classicComponentTokensV1.radius.card, borderWidth: 1, borderColor: classicVisualThemeV1.borderStrong, padding: 14, marginTop: 12 },
+  savedCard: { backgroundColor: classicVisualThemeV1.elevated, borderRadius: classicComponentTokensV1.radius.card, borderWidth: 1, borderColor: classicVisualThemeV1.border, padding: 14, marginTop: 12 },
+  gatewayCard: { backgroundColor: classicVisualThemeV1.elevated, borderRadius: classicComponentTokensV1.radius.card, borderWidth: 1, borderColor: classicVisualThemeV1.borderStrong, gap: 8, padding: 14, marginTop: 12 },
+  endedCard: { backgroundColor: classicVisualThemeV1.elevated, borderRadius: classicComponentTokensV1.radius.card, borderWidth: 1, borderColor: classicVisualThemeV1.borderStrong, gap: 8, padding: 14, marginTop: 12 },
+  cardTitle: { color: classicVisualThemeV1.text, fontSize: 21, lineHeight: 27, fontWeight: "800", flexShrink: 1 },
+  cardTrajectory: { color: classicVisualThemeV1.accentMist, fontSize: 16, lineHeight: 22, fontWeight: "800" },
+  offlinePill: { alignSelf: "flex-start", color: classicVisualPaletteV1.forestDeep, backgroundColor: classicVisualPaletteV1.sageMist, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, fontSize: 13, fontWeight: "800", overflow: "hidden" },
   scene: { height: 92, borderRadius: 16, overflow: "hidden", position: "relative", marginVertical: 6 },
   sceneCompact: { height: 76, borderRadius: 14, opacity: 0.88 },
   staticScene: { opacity: 1 },
@@ -1086,7 +1119,7 @@ const directedStyles = StyleSheet.create({
   rainDeskLampStem: { position: "absolute", right: 45, bottom: 25, width: 6, height: 48, backgroundColor: "#5B422F", transform: [{ rotate: "14deg" }] },
   rainDeskLamp: { position: "absolute", right: 18, top: 13, width: 62, height: 24, backgroundColor: "#C99759", transform: [{ rotate: "-4deg" }] },
   paperSheet: { position: "absolute", width: 112, height: 30, left: 102, bottom: 4, borderRadius: 2, backgroundColor: "#F2E8D4", transform: [{ rotate: "-2deg" }] },
-  pencilTrace: { position: "absolute", width: 80, height: 3, left: 130, bottom: 16, backgroundColor: palette.earth, transform: [{ rotate: "-8deg" }], opacity: 0.76 },
+  pencilTrace: { position: "absolute", width: 80, height: 3, left: 130, bottom: 16, backgroundColor: classicVisualPaletteV1.darkEarth, transform: [{ rotate: "-8deg" }], opacity: 0.76 },
   pencilTraceActive: { opacity: 1, height: 4 },
   porcelainScene: { backgroundColor: "#718083" },
   porcelainTableSurface: { position: "absolute", left: 0, right: 0, bottom: 0, height: 31, backgroundColor: "#866344" },
@@ -1106,51 +1139,51 @@ const directedStyles = StyleSheet.create({
   leatherStitchActive: { opacity: 1 },
   brushSweep: { position: "absolute", width: 86, height: 9, right: 12, bottom: 15, borderRadius: 8, backgroundColor: "#D8C4AF", transform: [{ rotate: "-14deg" }], opacity: 0.76 },
   brushSweepActive: { opacity: 1, height: 11 },
-  progressTrack: { height: 12, borderRadius: 999, backgroundColor: palette.sand, overflow: "hidden", marginVertical: 8 },
+  progressTrack: { height: 12, borderRadius: classicComponentTokensV1.radius.chip, backgroundColor: classicVisualThemeV1.surface, overflow: "hidden", marginVertical: 8 },
   progressCompact: { height: 7, marginVertical: 5 },
-  progressFill: { height: "100%", borderRadius: 999, backgroundColor: palette.forest },
-  playerCard: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: "#D8C2A3", padding: 12, marginTop: 12, shadowColor: "#2E2418", shadowOpacity: 0.09, shadowRadius: 10, elevation: 3 },
-  phaseTitle: { color: palette.ink, fontSize: 24, lineHeight: 30, fontWeight: "800" },
+  progressFill: { height: "100%", borderRadius: classicComponentTokensV1.radius.chip, backgroundColor: classicVisualThemeV1.accentDeep },
+  playerCard: { backgroundColor: classicVisualThemeV1.elevated, borderRadius: classicComponentTokensV1.radius.card, borderWidth: 1, borderColor: classicVisualThemeV1.borderStrong, padding: 12, marginTop: 12 },
+  phaseTitle: { color: classicVisualThemeV1.text, fontSize: 24, lineHeight: 30, fontWeight: "800" },
   progressCopyRow: { flexDirection: "row", justifyContent: "space-between", gap: 12, marginTop: 8 },
-  progressCopy: { color: palette.earth, fontSize: 16, lineHeight: 23, fontWeight: "700" },
-  progressReadOnlyCopy: { color: palette.walnut, fontSize: 13, lineHeight: 18, fontWeight: "700" },
-  nextCopy: { color: palette.forest, fontSize: 17, lineHeight: 24, fontWeight: "800" },
-  statusBanner: { color: palette.ink, backgroundColor: palette.white, borderRadius: 14, borderWidth: 1, borderColor: palette.sand, padding: 12, fontSize: 15, lineHeight: 22, marginTop: 8 },
-  statusRow: { color: palette.earth, fontSize: 15, lineHeight: 22, fontWeight: "700", marginTop: 12 },
+  progressCopy: { color: classicVisualPaletteV1.darkEarth, fontSize: 16, lineHeight: 23, fontWeight: "700" },
+  progressReadOnlyCopy: { color: classicVisualThemeV1.textMuted, fontSize: 13, lineHeight: 18, fontWeight: "700" },
+  nextCopy: { color: classicVisualThemeV1.accentMist, fontSize: 17, lineHeight: 24, fontWeight: "800" },
+  statusBanner: { color: classicVisualThemeV1.text, backgroundColor: classicVisualThemeV1.surface, borderRadius: classicComponentTokensV1.radius.card, borderWidth: 1, borderColor: classicVisualThemeV1.border, padding: 12, fontSize: 15, lineHeight: 22, marginTop: 8 },
+  statusRow: { color: classicVisualPaletteV1.darkEarth, fontSize: 15, lineHeight: 22, fontWeight: "700", marginTop: 12 },
   transportRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 8 },
   transportRowCompact: { flexDirection: "column", alignItems: "stretch" },
   steeringGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   steeringGridCompact: { flexDirection: "column" },
-  steeringControl: { minHeight: 72, minWidth: 140, flexGrow: 1, flexBasis: "46%", borderRadius: 16, borderWidth: 1, borderColor: palette.earth, backgroundColor: palette.linen, padding: 12, justifyContent: "center" },
+  steeringControl: { minHeight: 72, minWidth: 140, flexGrow: 1, flexBasis: "46%", borderRadius: classicComponentTokensV1.radius.card, borderWidth: 1, borderColor: classicVisualThemeV1.border, backgroundColor: classicVisualThemeV1.elevated, padding: 12, justifyContent: "center" },
   steeringControlWide: { flexBasis: "100%" },
-  steeringSelected: { backgroundColor: palette.sage, borderWidth: 2, borderColor: palette.forest },
-  steeringLabel: { color: palette.ink, fontSize: 16, lineHeight: 21, fontWeight: "800" },
-  steeringState: { color: palette.walnut, fontSize: 13, lineHeight: 19, marginTop: 4 },
+  steeringSelected: { backgroundColor: classicVisualThemeV1.selectedSurface, borderWidth: 2, borderColor: classicVisualThemeV1.accentDeep },
+  steeringLabel: { color: classicVisualThemeV1.text, fontSize: 16, lineHeight: 21, fontWeight: "800" },
+  steeringState: { color: classicVisualThemeV1.textMuted, fontSize: 13, lineHeight: 19, marginTop: 4 },
   choiceRow: { flexDirection: "row", flexWrap: "wrap", gap: 9 },
-  choice: { minHeight: 44, minWidth: 112, borderRadius: 999, borderWidth: 1, borderColor: palette.earth, paddingHorizontal: 14, paddingVertical: 10, alignItems: "center", justifyContent: "center" },
-  choiceSelected: { backgroundColor: palette.sage, borderWidth: 2, borderColor: palette.forest },
-  choiceText: { color: palette.ink, fontSize: 15, lineHeight: 20, fontWeight: "800", flexShrink: 1 },
-  listeningStatusPanel: { backgroundColor: "#EFE4D1", borderRadius: 16, borderWidth: 1, borderColor: "#D8C2A3", padding: 14, marginTop: 14 },
-  streamingState: { color: palette.forest, fontSize: 15, lineHeight: 22, fontWeight: "800", marginTop: 12 },
+  choice: { minHeight: classicComponentTokensV1.controlMinHeight, minWidth: 112, borderRadius: classicComponentTokensV1.radius.chip, borderWidth: 1, borderColor: classicVisualThemeV1.border, backgroundColor: classicVisualThemeV1.elevated, paddingHorizontal: 14, paddingVertical: 10, alignItems: "center", justifyContent: "center" },
+  choiceSelected: { backgroundColor: classicVisualThemeV1.selectedSurface, borderWidth: 2, borderColor: classicVisualThemeV1.accentDeep },
+  choiceText: { color: classicVisualThemeV1.text, fontSize: 15, lineHeight: 20, fontWeight: "800", flexShrink: 1 },
+  listeningStatusPanel: { backgroundColor: classicVisualThemeV1.surface, borderRadius: classicComponentTokensV1.radius.card, borderWidth: 1, borderColor: classicVisualThemeV1.border, padding: 14, marginTop: 14 },
+  streamingState: { color: classicVisualThemeV1.accentMist, fontSize: 15, lineHeight: 22, fontWeight: "800", marginTop: 12 },
   chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chip: { minHeight: 44, minWidth: 44, borderRadius: 999, borderWidth: 1, borderColor: palette.earth, paddingHorizontal: 14, paddingVertical: 10, justifyContent: "center" },
-  chipSelected: { backgroundColor: palette.sage, borderWidth: 2, borderColor: palette.forest },
-  chipText: { color: palette.ink, fontSize: 14, lineHeight: 20, fontWeight: "700", flexShrink: 1 },
+  chip: { minHeight: classicComponentTokensV1.controlMinHeight, minWidth: classicComponentTokensV1.controlMinHeight, borderRadius: classicComponentTokensV1.radius.chip, borderWidth: 1, borderColor: classicVisualThemeV1.border, backgroundColor: classicVisualThemeV1.elevated, paddingHorizontal: 14, paddingVertical: 10, justifyContent: "center" },
+  chipSelected: { backgroundColor: classicVisualThemeV1.selectedSurface, borderWidth: 2, borderColor: classicVisualThemeV1.accentDeep },
+  chipText: { color: classicVisualThemeV1.text, fontSize: 14, lineHeight: 20, fontWeight: "700", flexShrink: 1 },
   feedbackRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  adjustCard: { backgroundColor: palette.white, borderRadius: 16, borderWidth: 1, borderColor: palette.sand, padding: 14, marginTop: 12 },
-  renameInput: { minHeight: 44, color: palette.ink, borderWidth: 1, borderColor: palette.earth, borderRadius: 10, paddingHorizontal: 12, fontSize: 16, fontWeight: "700" },
+  adjustCard: { backgroundColor: classicVisualThemeV1.elevated, borderRadius: classicComponentTokensV1.radius.card, borderWidth: 1, borderColor: classicVisualThemeV1.border, padding: 14, marginTop: 12 },
+  renameInput: { minHeight: classicComponentTokensV1.controlMinHeight, color: classicVisualThemeV1.text, borderWidth: 1, borderColor: classicVisualThemeV1.border, borderRadius: classicComponentTokensV1.radius.control, paddingHorizontal: 12, fontSize: 16, fontWeight: "700" },
   savedActionRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   miniPlayerPlacement: { position: "absolute", left: 10, right: 10 },
-  miniPlayer: { minHeight: 82, backgroundColor: palette.earth, borderRadius: 18, padding: 10, flexDirection: "row", alignItems: "center", gap: 10, shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 8, elevation: 5 },
+  miniPlayer: { minHeight: 82, backgroundColor: classicVisualPaletteV1.midnightOak, borderColor: classicVisualPaletteV1.darkEarth, borderWidth: 1, borderRadius: classicComponentTokensV1.radius.card, padding: 10, flexDirection: "row", alignItems: "center", gap: 10, shadowColor: "#000", shadowOpacity: 0.3, shadowRadius: 8, elevation: 14 },
   miniPlayerCompact: { minHeight: 118, flexDirection: "column", alignItems: "stretch" },
   miniSummary: { flex: 1, minHeight: 44, justifyContent: "center" },
-  miniTitle: { color: palette.linen, fontSize: 16, lineHeight: 21, fontWeight: "800" },
-  miniPhase: { color: palette.sand, fontSize: 13, lineHeight: 18 },
-  pendingText: { color: palette.sage, fontSize: 12, lineHeight: 16, fontWeight: "800" },
-  bottomNavSafeArea: { position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: palette.linen, borderTopWidth: 1, borderColor: palette.sand },
-  bottomNav: { minHeight: 58, paddingHorizontal: 10, paddingBottom: 6, paddingTop: 6, backgroundColor: palette.linen, flexDirection: "row", gap: 8 },
-  navTab: { flex: 1, minHeight: 44, minWidth: 44, borderRadius: 999, borderWidth: 1, borderColor: "transparent", alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
-  navTabSelected: { backgroundColor: palette.sage, borderColor: palette.forest },
-  navText: { color: palette.earth, fontSize: 14, lineHeight: 19, fontWeight: "700", flexShrink: 1 },
-  navTextSelected: { color: palette.forest, fontWeight: "900" },
+  miniTitle: { color: classicVisualThemeV1.textOnDark, fontSize: 16, lineHeight: 21, fontWeight: "800" },
+  miniPhase: { color: classicVisualPaletteV1.sand, fontSize: 13, lineHeight: 18 },
+  pendingText: { color: classicVisualPaletteV1.sageMist, fontSize: 12, lineHeight: 16, fontWeight: "800" },
+  bottomNavSafeArea: { position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: classicVisualThemeV1.background, borderTopWidth: 1, borderColor: classicVisualThemeV1.border },
+  bottomNav: { minHeight: 58, paddingHorizontal: 10, paddingBottom: 6, paddingTop: 6, backgroundColor: classicVisualThemeV1.background, flexDirection: "row", gap: 6 },
+  navTab: { flex: 1, minHeight: classicComponentTokensV1.controlMinHeight, minWidth: classicComponentTokensV1.controlMinHeight, borderRadius: classicComponentTokensV1.radius.chip, borderWidth: 1, borderColor: classicVisualThemeV1.border, backgroundColor: classicVisualThemeV1.elevated, alignItems: "center", justifyContent: "center", paddingHorizontal: 4, paddingVertical: 6 },
+  navTabSelected: { backgroundColor: classicVisualThemeV1.accentDeep, borderColor: classicVisualThemeV1.accentSeaGlass },
+  navText: { color: classicVisualThemeV1.textMuted, fontSize: 12, lineHeight: 17, fontWeight: "900", flexShrink: 1, textAlign: "center" },
+  navTextSelected: { color: classicVisualThemeV1.text, fontWeight: "900" },
 });

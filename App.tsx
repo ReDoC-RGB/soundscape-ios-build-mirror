@@ -184,6 +184,12 @@ import {
   mobileUxTokens,
   shouldStackMiniPlayer,
 } from "./src/mobileUxFoundation";
+import { classicVisualPaletteV1, classicVisualThemeV1 } from "./src/ui/classicVisualAuthorityV1";
+import {
+  projectClassicMiniPlayerPlaybackStateV1,
+  shouldShowRetainedClassicMiniPlayerV1,
+  type ClassicMiniPlayerOverlayMetricsV1,
+} from "./src/ui/classicMiniPlayerOverlayLayoutV1";
 import {
   LatestKeyedAfterPaintQueue,
   LatestIntentPersistenceQueue,
@@ -354,11 +360,11 @@ const playbackTraceDisplayRefreshMillis = 250;
 const playbackTraceEventLoopGapThresholdMillis = 250;
 const sessionReplacementFadeMillis = 120;
 const appIterationInfo = {
-  label: "Alpha 0.15.0",
-  displayLabel: "Alpha 0.15.0 — Directed Sessions Visual Convergence v1",
-  currentUpdate: "Alpha 0.15.0 — Directed Sessions Visual Convergence v1",
-  codename: "directed-sessions-visual-convergence-v1",
-  fullInternalLabel: "Alpha 0.15.0+directed-sessions-visual-convergence-v1",
+  label: "Alpha 0.15.1",
+  displayLabel: "Alpha 0.15.1 — Classic Visual Cohesion and Session End Fix",
+  currentUpdate: "Alpha 0.15.1 — Classic Visual Cohesion and Session End Fix",
+  codename: "classic-visual-cohesion-session-end-fix-v1",
+  fullInternalLabel: "Alpha 0.15.1+classic-visual-cohesion-session-end-fix-v1",
   acceptedNativeBaseline: {
     label: "Alpha 0.11.7",
     displayLabel: "Alpha 0.11.7 — Single Preview Selection-Ready Fix",
@@ -1130,6 +1136,8 @@ type SoundscapeAppProps = Readonly<{
   directedModeBackLabel?: string;
   savedDestinationIntent?: SavedDestinationIntentV1 | null;
   onSavedDestinationConsumed?: (requestId: number) => void;
+  retainedMiniPlayerBottomOffset?: number | null;
+  onClassicMiniPlayerLayoutChange?: (metrics: ClassicMiniPlayerOverlayMetricsV1) => void;
 }>;
 
 function SoundscapeApp({
@@ -1143,6 +1151,8 @@ function SoundscapeApp({
   directedModeBackLabel = "Back to Sessions",
   savedDestinationIntent = null,
   onSavedDestinationConsumed,
+  retainedMiniPlayerBottomOffset = null,
+  onClassicMiniPlayerLayoutChange,
 }: SoundscapeAppProps = {}) {
   const { fontScale, width: screenWidth } = useWindowDimensions();
   const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
@@ -2351,10 +2361,29 @@ function SoundscapeApp({
         activeLayerCount: activeLayeredPreviewLayers.length,
         activePlaybackStatusLabel,
         choiceRequired: miniChoiceRequired,
+        compact: useCompactMiniPlayerFallback,
         timerLabel: timerIsCounting
           ? `Ends in ${formatDurationFromMillis(timerRemainingMillis)}`
           : null,
       });
+  const showRetainedClassicMiniPlayer = shouldShowRetainedClassicMiniPlayerV1({
+    hasClassicSession: Boolean(currentSession),
+    aggregateSessionType,
+    playbackState: projectClassicMiniPlayerPlaybackStateV1({
+      hasClassicSession: Boolean(currentSession),
+      isPlaying,
+      explicitStopAcknowledged: sessionStopPhase === "stopped",
+    }),
+  });
+  const retainedClassicMiniPlayerBottom = surfaceVisible
+    ? bottomNavigationHeight
+    : retainedMiniPlayerBottomOffset ?? bottomNavigationHeight;
+  useEffect(() => {
+    onClassicMiniPlayerLayoutChange?.({
+      present: showRetainedClassicMiniPlayer,
+      height: showRetainedClassicMiniPlayer ? miniPlayerHeight : 0,
+    });
+  }, [miniPlayerHeight, onClassicMiniPlayerLayoutChange, showRetainedClassicMiniPlayer]);
   const loopHelperLabel = currentSession
     ? timerIsCounting
       ? "Timer overrides loop."
@@ -9970,10 +9999,10 @@ function SoundscapeApp({
         </View>
       ) : null}
 
-      {currentSession && aggregateSessionType !== "directed" ? (
+      {showRetainedClassicMiniPlayer && currentSession ? (
         <View
           onLayout={handleMiniPlayerLayout}
-          style={[styles.miniPlayer, { bottom: bottomNavigationHeight }]}
+          style={[styles.miniPlayer, { bottom: retainedClassicMiniPlayerBottom }]}
         >
           <View style={styles.miniPlayerMainRow}>
             <View style={[styles.miniPlayerContent, useCompactMiniPlayerFallback ? styles.miniPlayerContentFallback : null]}>
@@ -10148,6 +10177,14 @@ export default function App() {
   const [classicEverMounted, setClassicEverMounted] = useState(!directedSessionsBetaV1);
   const savedDestinationRequestRef = useRef(0);
   const [savedDestinationIntent, setSavedDestinationIntent] = useState<SavedDestinationIntentV1 | null>(null);
+  const [classicMiniPlayerOverlay, setClassicMiniPlayerOverlay] = useState<ClassicMiniPlayerOverlayMetricsV1>({ present: false, height: 0 });
+  const [retainedMiniPlayerBottomOffset, setRetainedMiniPlayerBottomOffset] = useState<number | null>(null);
+  const handleClassicMiniPlayerLayoutChange = useCallback((next: ClassicMiniPlayerOverlayMetricsV1) => {
+    setClassicMiniPlayerOverlay((current) => current.present === next.present && current.height === next.height ? current : next);
+  }, []);
+  const handleClassicOverlayLayoutChange = useCallback((bottomOffset: number) => {
+    setRetainedMiniPlayerBottomOffset((current) => current === bottomOffset ? current : bottomOffset);
+  }, []);
   const openClassicRoute = (route: DirectedClassicRouteV1, returnTab: DirectedTabV1) => {
     setClassicEverMounted(true);
     setClassicReturnTab(returnTab);
@@ -10176,7 +10213,12 @@ export default function App() {
     <SafeAreaProvider>
       <SoundscapeErrorBoundary>
         {navigationSurface.directedVisible ? (
-          <DirectedSessionsExperienceV1 initialTab={classicReturnTab} onOpenClassicLibraryRoute={openClassicRoute} />
+          <DirectedSessionsExperienceV1
+            initialTab={classicReturnTab}
+            classicMiniPlayerOverlay={classicMiniPlayerOverlay}
+            onClassicOverlayLayoutChange={handleClassicOverlayLayoutChange}
+            onOpenClassicLibraryRoute={openClassicRoute}
+          />
         ) : null}
         {navigationSurface.mountClassic ? (
           <SoundscapeApp
@@ -10191,6 +10233,8 @@ export default function App() {
             directedModeBackLabel={`Back to ${classicReturnTab === "sessions" ? "Sessions" : classicReturnTab === "library" ? "Library" : "Saved"}`}
             savedDestinationIntent={savedDestinationIntent}
             onSavedDestinationConsumed={handleSavedDestinationConsumed}
+            retainedMiniPlayerBottomOffset={retainedMiniPlayerBottomOffset}
+            onClassicMiniPlayerLayoutChange={handleClassicMiniPlayerLayoutChange}
           />
         ) : null}
       </SoundscapeErrorBoundary>
@@ -11332,48 +11376,7 @@ function normalizeFastStartText(text: string): string {
     .replace(/\s+/g, " ");
 }
 
-const warmStonePalette = {
-  midnightOak: "#2E2418",
-  candlelight: "#C4935A",
-  linen: "#F5F0E8",
-  sand: "#E8DCCA",
-  walnut: "#7A6A52",
-  sageMist: "#C8D4BE",
-  dustyRose: "#D8C4BC",
-  darkEarth: "#4A3828",
-  amberGlow: "#C4935A33",
-  forestDeep: "#344830",
-} as const;
-
-const visualTheme = {
-  ...warmStonePalette,
-  background: warmStonePalette.linen,
-  surface: warmStonePalette.sand,
-  elevated: "#EFE5D6",
-  panelBotanical: warmStonePalette.amberGlow,
-  selectedSurface: warmStonePalette.amberGlow,
-  selectionSurface: warmStonePalette.darkEarth,
-  presetSelectedSurface: "#E4CDA6",
-  border: "#D1C1A9",
-  borderStrong: warmStonePalette.darkEarth,
-  accentDeep: warmStonePalette.candlelight,
-  accentSeaGlass: warmStonePalette.candlelight,
-  accentSeaGlassSoft: warmStonePalette.amberGlow,
-  accentSand: warmStonePalette.candlelight,
-  accentSandDeep: warmStonePalette.darkEarth,
-  accentMist: warmStonePalette.darkEarth,
-  accentMistSoft: warmStonePalette.darkEarth,
-  accentSage: warmStonePalette.sageMist,
-  accentRose: warmStonePalette.dustyRose,
-  labelText: warmStonePalette.darkEarth,
-  warningSurface: "#F2E4CE",
-  dangerText: "#8A3E2E",
-  text: warmStonePalette.midnightOak,
-  textOnDark: warmStonePalette.linen,
-  textMuted: warmStonePalette.walnut,
-  textSubtle: warmStonePalette.walnut,
-  inkText: warmStonePalette.midnightOak,
-} as const;
+const visualTheme = classicVisualThemeV1;
 
 const styles = StyleSheet.create({
   classicNavigationOwnerOverlay: {
@@ -11386,7 +11389,7 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
-    backgroundColor: visualTheme.background,
+    backgroundColor: classicVisualPaletteV1.linen,
   },
   container: {
     padding: mobileUxTokens.sectionPadding,
