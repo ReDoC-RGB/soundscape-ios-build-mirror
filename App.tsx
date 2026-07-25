@@ -360,11 +360,11 @@ const playbackTraceDisplayRefreshMillis = 250;
 const playbackTraceEventLoopGapThresholdMillis = 250;
 const sessionReplacementFadeMillis = 120;
 const appIterationInfo = {
-  label: "Alpha 0.15.1",
-  displayLabel: "Alpha 0.15.1 — Classic Visual Cohesion and Session End Fix",
-  currentUpdate: "Alpha 0.15.1 — Classic Visual Cohesion and Session End Fix",
-  codename: "classic-visual-cohesion-session-end-fix-v1",
-  fullInternalLabel: "Alpha 0.15.1+classic-visual-cohesion-session-end-fix-v1",
+  label: "Alpha 0.15.2",
+  displayLabel: "Alpha 0.15.2 — Mini-Player Navigation Stack Gap Fix",
+  currentUpdate: "Alpha 0.15.2 — Mini-Player Navigation Stack Gap Fix",
+  codename: "mini-player-navigation-stack-gap-fix-v1",
+  fullInternalLabel: "Alpha 0.15.2+mini-player-navigation-stack-gap-fix-v1",
   acceptedNativeBaseline: {
     label: "Alpha 0.11.7",
     displayLabel: "Alpha 0.11.7 — Single Preview Selection-Ready Fix",

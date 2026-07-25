@@ -1,15 +1,15 @@
 {
-  "canonicalPrivateCommit": "95d221372fb3e702696b52b98ca363d327004d4a",
+  "canonicalPrivateCommit": "9635e173f3fa5aeabf12a1e03d5d56b3fa6b7471",
   "exportedPaths": [
     {
       "path": ".github/workflows/ios-internal.yml",
-      "byteLength": 14074,
-      "sha256": "e7645804fd87bb5bde8211fff9d51e53f8a8e57f62e09d6d0379d92df2961b2d"
+      "byteLength": 14061,
+      "sha256": "979a58bc685a94115fa7cf0ea409120091610c247cab58ec922c309b7c0925b3"
     },
     {
       "path": "App.tsx",
-      "byteLength": 559031,
-      "sha256": "10d32ec3dc46221988ba8a2e83c335f26bf52c0071f038910759db5f925bf7bc"
+      "byteLength": 559011,
+      "sha256": "5d980ef0f30c834b7263673fe576be21f2bc30ae8dda95199d332141c514d2e0"
     },
     {
       "path": "README.md",
@@ -18,13 +18,13 @@
     },
     {
       "path": "app.config.js",
-      "byteLength": 1881,
-      "sha256": "753a608569d4a1b1ba30c286518c6ad4b97ccae78c7c500cb6d6283a91181585"
+      "byteLength": 1868,
+      "sha256": "c8b6fde3723e5d1ea727664dcb409d81270c39737af8a0f40db21bbc0155050b"
     },
     {
       "path": "app.json",
       "byteLength": 1321,
-      "sha256": "b519a87cdde84d8a2667efc213cd48f901470b61cf40f73c272ab051d3bdab0b"
+      "sha256": "68be9c898a278c27fc39a967a6e3a7cde1d48c2d861d5f65acfc878b55c997cf"
     },
     {
       "path": "assets/icon.png",
@@ -463,8 +463,8 @@
     },
     {
       "path": "src/ui/classicMiniPlayerOverlayLayoutV1.ts",
-      "byteLength": 2125,
-      "sha256": "0271171258ed34f6cd6f1fceed79c94fb094ed75319b04fcc0c55fbe14658cdb"
+      "byteLength": 2417,
+      "sha256": "7bf2dd1831180a6f0b63bc08768a7ff57d3ce0c78de053ebdd2c4bc8ab6c7765"
     },
     {
       "path": "src/ui/classicVisualAuthorityV1.ts",

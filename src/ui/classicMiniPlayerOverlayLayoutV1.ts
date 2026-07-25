@@ -15,6 +15,7 @@ export type ClassicMiniPlayerOverlayLayoutInputV1 = Readonly<{
 export type ClassicMiniPlayerOverlayLayoutV1 = Readonly<{
   overlayBottom: number;
   contentBottomPadding: number;
+  exposedContentGap: number;
 }>;
 
 export type ClassicMiniPlayerPlaybackProjectionInputV1 = Readonly<{
@@ -36,10 +37,14 @@ export function resolveClassicMiniPlayerOverlayLayoutV1(
   const miniPlayerHeight = input.miniPlayerPresent
     ? finiteNonNegative(input.miniPlayerHeight)
     : 0;
-  const overlayBottom = safeAreaBottom + bottomNavigationContentHeight + spacing;
+  // The visible navigation and retained player are one measured anchored stack.
+  // Spacing is reserved above that stack for scroll reachability, never inserted
+  // between the player and navigation where underlying content could show through.
+  const overlayBottom = safeAreaBottom + bottomNavigationContentHeight;
   return Object.freeze({
     overlayBottom,
     contentBottomPadding: overlayBottom + miniPlayerHeight + (input.miniPlayerPresent ? spacing : 0),
+    exposedContentGap: 0,
   });
 }
 
