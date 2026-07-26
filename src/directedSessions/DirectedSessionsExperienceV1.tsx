@@ -53,6 +53,7 @@ import {
 } from "../ui/classicVisualAuthorityV1";
 import {
   resolveClassicMiniPlayerOverlayLayoutV1,
+  type ClassicMiniPlayerOverlayLayoutV1,
   type ClassicMiniPlayerOverlayMetricsV1,
 } from "../ui/classicMiniPlayerOverlayLayoutV1";
 
@@ -488,7 +489,7 @@ function SessionCardV1(props: Readonly<{
 export function DirectedSessionsExperienceV1(props: Readonly<{
   initialTab?: DirectedTabV1;
   classicMiniPlayerOverlay: ClassicMiniPlayerOverlayMetricsV1;
-  onClassicOverlayLayoutChange: (bottomOffset: number) => void;
+  onClassicOverlayLayoutChange: (layout: ClassicMiniPlayerOverlayLayoutV1) => void;
   onOpenClassicLibraryRoute: (route: DirectedClassicRouteV1, returnTab: DirectedTabV1) => void;
 }>) {
   const { width, fontScale } = useWindowDimensions();
@@ -522,6 +523,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
   const [directedAppState, setDirectedAppState] = useState<DirectedProjectionAppStateV1>(AppState.currentState);
   const [bottomNavigationContentHeight, setBottomNavigationContentHeight] = useState(58);
   const [miniPlayerMeasuredHeight, setMiniPlayerMeasuredHeight] = useState(compact ? 118 : 82);
+  const [bottomActionClusterHeight, setBottomActionClusterHeight] = useState(0);
   const projectionInFlight = useRef<Promise<NativeDirectedSessionStateV1 | null> | null>(null);
   const mountedRef = useRef(false);
   const lifecycleEpochRef = useRef(0);
@@ -962,10 +964,15 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
             })}
           </View>
           <Text accessibilityLiveRegion="polite" style={selectedVariant.blocked || !available.startable ? directedStyles.warning : directedStyles.statusBanner}>{selectedVariant.blocked ? selectedVariant.customerCopy : customerReadinessCopy}</Text>
-          <DirectedButtonV1 label={busy ? "Starting…" : selectedVariant.blocked || !available.startable ? "Start unavailable" : "Start session"} onPress={() => void start({ sceneId: selectedSceneId, outputProfile, hardAvoidanceIds: selectedAvoidances, allowRemote: available.playingSourceMode !== "local" })} disabled={busy || selectedVariant.blocked || !available.startable} />
-          {downloadActionLabel ? <DirectedButtonV1 label={downloadActionLabel} onPress={() => { void downloadPackageForScene(selectedSceneId); }} secondary /> : null}
-          {available.state === "offline-missing" ? <DirectedButtonV1 label="Try again when online" onPress={() => void refreshAvailability()} secondary /> : null}
-          {available.state === "downloading" ? <DirectedButtonV1 label="Cancel download" onPress={() => directedSessionServiceV1.cancelDirectedPackageDownload(selectedSceneId)} secondary /> : null}
+          <View
+            onLayout={({ nativeEvent }) => setBottomActionClusterHeight(nativeEvent.layout.height)}
+            style={directedStyles.bottomActionCluster}
+          >
+            <DirectedButtonV1 label={busy ? "Starting…" : selectedVariant.blocked || !available.startable ? "Start unavailable" : "Start session"} onPress={() => void start({ sceneId: selectedSceneId, outputProfile, hardAvoidanceIds: selectedAvoidances, allowRemote: available.playingSourceMode !== "local" })} disabled={busy || selectedVariant.blocked || !available.startable} />
+            {downloadActionLabel ? <DirectedButtonV1 label={downloadActionLabel} onPress={() => { void downloadPackageForScene(selectedSceneId); }} secondary /> : null}
+            {available.state === "offline-missing" ? <DirectedButtonV1 label="Try again when online" onPress={() => void refreshAvailability()} secondary /> : null}
+            {available.state === "downloading" ? <DirectedButtonV1 label="Cancel download" onPress={() => directedSessionServiceV1.cancelDirectedPackageDownload(selectedSceneId)} secondary /> : null}
+          </View>
           {message ? <Text accessibilityLiveRegion="assertive" style={directedStyles.warning}>{message}</Text> : null}
         </View>
       </View>
@@ -999,12 +1006,20 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
     bottomNavigationContentHeight,
     safeAreaBottom: insets.bottom,
     spacing: classicComponentTokensV1.spacing.md,
+    stableActionClusterHeight: screen === "detail" ? bottomActionClusterHeight : 0,
   });
-  const miniPlayerBottom = overlayLayout.overlayBottom;
+  const miniPlayerBottom = overlayLayout.interactiveBottom;
   const contentBottomPadding = overlayLayout.contentBottomPadding;
   useEffect(() => {
-    props.onClassicOverlayLayoutChange(overlayLayout.overlayBottom);
-  }, [overlayLayout.overlayBottom, props.onClassicOverlayLayoutChange]);
+    props.onClassicOverlayLayoutChange(overlayLayout);
+  }, [
+    overlayLayout.contentBottomPadding,
+    overlayLayout.exposedContentGap,
+    overlayLayout.interactiveBottom,
+    overlayLayout.safeAreaBackgroundExtension,
+    overlayLayout.visualSurfaceBottom,
+    props.onClassicOverlayLayoutChange,
+  ]);
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={directedStyles.safeAreaShell}>
       <View style={directedStyles.topBar}>
@@ -1018,6 +1033,18 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
         </Pressable>
       </View>
       <ScrollView contentContainerStyle={[directedStyles.content, { paddingBottom: contentBottomPadding }]}>{content}</ScrollView>
+      {showMini && nativeState && overlayLayout.safeAreaBackgroundExtension > 0 ? (
+        <View
+          pointerEvents="none"
+          style={[
+            directedStyles.miniPlayerSafeAreaBackground,
+            {
+              bottom: overlayLayout.visualSurfaceBottom,
+              height: overlayLayout.safeAreaBackgroundExtension,
+            },
+          ]}
+        />
+      ) : null}
       {showMini && nativeState ? (
         <View
           onLayout={({ nativeEvent }) => setMiniPlayerMeasuredHeight(nativeEvent.layout.height)}
@@ -1149,6 +1176,7 @@ const directedStyles = StyleSheet.create({
   progressReadOnlyCopy: { color: classicVisualThemeV1.textMuted, fontSize: 13, lineHeight: 18, fontWeight: "700" },
   nextCopy: { color: classicVisualThemeV1.accentMist, fontSize: 17, lineHeight: 24, fontWeight: "800" },
   statusBanner: { color: classicVisualThemeV1.text, backgroundColor: classicVisualThemeV1.surface, borderRadius: classicComponentTokensV1.radius.card, borderWidth: 1, borderColor: classicVisualThemeV1.border, padding: 12, fontSize: 15, lineHeight: 22, marginTop: 8 },
+  bottomActionCluster: { gap: 0 },
   statusRow: { color: classicVisualPaletteV1.darkEarth, fontSize: 15, lineHeight: 22, fontWeight: "700", marginTop: 12 },
   transportRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 8 },
   transportRowCompact: { flexDirection: "column", alignItems: "stretch" },
@@ -1174,6 +1202,7 @@ const directedStyles = StyleSheet.create({
   renameInput: { minHeight: classicComponentTokensV1.controlMinHeight, color: classicVisualThemeV1.text, borderWidth: 1, borderColor: classicVisualThemeV1.border, borderRadius: classicComponentTokensV1.radius.control, paddingHorizontal: 12, fontSize: 16, fontWeight: "700" },
   savedActionRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   miniPlayerPlacement: { position: "absolute", left: 10, right: 10 },
+  miniPlayerSafeAreaBackground: { position: "absolute", left: 0, right: 0, backgroundColor: classicVisualPaletteV1.midnightOak },
   miniPlayer: { minHeight: 82, backgroundColor: classicVisualPaletteV1.midnightOak, borderColor: classicVisualPaletteV1.darkEarth, borderWidth: 1, borderRadius: classicComponentTokensV1.radius.card, padding: 10, flexDirection: "row", alignItems: "center", gap: 10, shadowColor: "#000", shadowOpacity: 0.3, shadowRadius: 8, elevation: 14 },
   miniPlayerCompact: { minHeight: 118, flexDirection: "column", alignItems: "stretch" },
   miniSummary: { flex: 1, minHeight: 44, justifyContent: "center" },

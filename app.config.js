@@ -1,9 +1,9 @@
 const UNBOUND_SOURCE_COMMIT = "0000000000000000000000000000000000000000";
 const RELEASE = Object.freeze({
-  label: "Alpha 0.15.2",
-  displayLabel: "Alpha 0.15.2 — Mini-Player Navigation Stack Gap Fix",
-  codename: "mini-player-navigation-stack-gap-fix-v1",
-  internalLabel: "Alpha 0.15.2+mini-player-navigation-stack-gap-fix-v1",
+  label: "Alpha 0.15.3",
+  displayLabel: "Alpha 0.15.3 — Safe-Area Mini-Player and Action Reachability Fix",
+  codename: "safe-area-mini-player-action-reachability-fix-v1",
+  internalLabel: "Alpha 0.15.3+safe-area-mini-player-action-reachability-fix-v1",
 });
 
 module.exports = ({ config }) => {

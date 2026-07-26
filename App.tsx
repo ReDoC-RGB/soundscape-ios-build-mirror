@@ -1,7 +1,7 @@
 import { StatusBar } from "expo-status-bar";
 import * as Updates from "expo-updates";
 
-import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   AccessibilityInfo,
@@ -187,7 +187,9 @@ import {
 import { classicVisualPaletteV1, classicVisualThemeV1 } from "./src/ui/classicVisualAuthorityV1";
 import {
   projectClassicMiniPlayerPlaybackStateV1,
+  resolveClassicMiniPlayerOverlayLayoutV1,
   shouldShowRetainedClassicMiniPlayerV1,
+  type ClassicMiniPlayerOverlayLayoutV1,
   type ClassicMiniPlayerOverlayMetricsV1,
 } from "./src/ui/classicMiniPlayerOverlayLayoutV1";
 import {
@@ -360,11 +362,11 @@ const playbackTraceDisplayRefreshMillis = 250;
 const playbackTraceEventLoopGapThresholdMillis = 250;
 const sessionReplacementFadeMillis = 120;
 const appIterationInfo = {
-  label: "Alpha 0.15.2",
-  displayLabel: "Alpha 0.15.2 — Mini-Player Navigation Stack Gap Fix",
-  currentUpdate: "Alpha 0.15.2 — Mini-Player Navigation Stack Gap Fix",
-  codename: "mini-player-navigation-stack-gap-fix-v1",
-  fullInternalLabel: "Alpha 0.15.2+mini-player-navigation-stack-gap-fix-v1",
+  label: "Alpha 0.15.3",
+  displayLabel: "Alpha 0.15.3 — Safe-Area Mini-Player and Action Reachability Fix",
+  currentUpdate: "Alpha 0.15.3 — Safe-Area Mini-Player and Action Reachability Fix",
+  codename: "safe-area-mini-player-action-reachability-fix-v1",
+  fullInternalLabel: "Alpha 0.15.3+safe-area-mini-player-action-reachability-fix-v1",
   acceptedNativeBaseline: {
     label: "Alpha 0.11.7",
     displayLabel: "Alpha 0.11.7 — Single Preview Selection-Ready Fix",
@@ -1136,7 +1138,7 @@ type SoundscapeAppProps = Readonly<{
   directedModeBackLabel?: string;
   savedDestinationIntent?: SavedDestinationIntentV1 | null;
   onSavedDestinationConsumed?: (requestId: number) => void;
-  retainedMiniPlayerBottomOffset?: number | null;
+  retainedMiniPlayerLayout?: ClassicMiniPlayerOverlayLayoutV1 | null;
   onClassicMiniPlayerLayoutChange?: (metrics: ClassicMiniPlayerOverlayMetricsV1) => void;
 }>;
 
@@ -1151,10 +1153,11 @@ function SoundscapeApp({
   directedModeBackLabel = "Back to Sessions",
   savedDestinationIntent = null,
   onSavedDestinationConsumed,
-  retainedMiniPlayerBottomOffset = null,
+  retainedMiniPlayerLayout = null,
   onClassicMiniPlayerLayoutChange,
 }: SoundscapeAppProps = {}) {
   const { fontScale, width: screenWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
   useEffect(() => {
     let mounted = true;
@@ -1179,10 +1182,10 @@ function SoundscapeApp({
   const useStackedSavedSessionManageActions =
     screenWidth < mobileUxBreakpoints.savedManageStackWidth || fontScale > mobileUxBreakpoints.largeTextScale;
   const useStackedClassicHeader = screenWidth <= 360 || fontScale >= 1.35;
-  const [bottomNavigationHeight, setBottomNavigationHeight] = useState<number>(mobileUxTokens.bottomNavigationContentHeight);
+  const [bottomNavigationContentHeight, setBottomNavigationContentHeight] = useState<number>(mobileUxTokens.bottomNavigationContentHeight);
   const [miniPlayerHeight, setMiniPlayerHeight] = useState<number>(mobileUxTokens.miniPlayerEstimatedHeight);
   const handleBottomNavigationLayout = (event: LayoutChangeEvent) => {
-    setBottomNavigationHeight(event.nativeEvent.layout.height);
+    setBottomNavigationContentHeight(event.nativeEvent.layout.height);
   };
   const handleMiniPlayerLayout = (event: LayoutChangeEvent) => {
     setMiniPlayerHeight(event.nativeEvent.layout.height);
@@ -1325,9 +1328,6 @@ function SoundscapeApp({
   const dispatchPlaybackStop = () => {
     dispatchPlaybackContract({ type: "stop", generation: playbackContractGenerationRef.current, operationId: nextPlaybackContractOperation(), fadeMillis: 5000 });
   };
-  const shellContentBottomReservation = bottomNavigationHeight
-    + (currentSession ? miniPlayerHeight : 0)
-    + mobileUxTokens.shellContentGap;
   const [loadedSoundId, setLoadedSoundId] = useState<string | null>(null);
   const loadedSoundIdRef = useRef<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -2375,9 +2375,28 @@ function SoundscapeApp({
       explicitStopAcknowledged: sessionStopPhase === "stopped",
     }),
   });
-  const retainedClassicMiniPlayerBottom = surfaceVisible
-    ? bottomNavigationHeight
-    : retainedMiniPlayerBottomOffset ?? bottomNavigationHeight;
+  const classicSurfaceLayout = resolveClassicMiniPlayerOverlayLayoutV1({
+    miniPlayerPresent: showRetainedClassicMiniPlayer,
+    miniPlayerHeight,
+    bottomNavigationVisible: surfaceVisible,
+    bottomNavigationContentHeight,
+    safeAreaBottom: insets.bottom,
+    spacing: mobileUxTokens.shellContentGap,
+    stableActionClusterHeight: 0,
+  });
+  const activeClassicMiniPlayerLayout = surfaceVisible
+    ? classicSurfaceLayout
+    : retainedMiniPlayerLayout ?? resolveClassicMiniPlayerOverlayLayoutV1({
+        miniPlayerPresent: showRetainedClassicMiniPlayer,
+        miniPlayerHeight,
+        bottomNavigationVisible: false,
+        bottomNavigationContentHeight,
+        safeAreaBottom: insets.bottom,
+        spacing: mobileUxTokens.shellContentGap,
+        stableActionClusterHeight: 0,
+      });
+  const shellContentBottomReservation = classicSurfaceLayout.contentBottomPadding;
+  const retainedClassicMiniPlayerBottom = activeClassicMiniPlayerLayout.interactiveBottom;
   useEffect(() => {
     onClassicMiniPlayerLayoutChange?.({
       present: showRetainedClassicMiniPlayer,
@@ -9985,7 +10004,7 @@ function SoundscapeApp({
           pointerEvents="none"
           style={[
             styles.transientNotificationOverlay,
-            { bottom: bottomNavigationHeight + (currentSession ? miniPlayerHeight : 0) + 8 },
+            { bottom: activeClassicMiniPlayerLayout.interactiveBottom + (currentSession ? miniPlayerHeight : 0) + 8 },
           ]}
         >
           <Text
@@ -9997,6 +10016,19 @@ function SoundscapeApp({
             {transientNotification.message}
           </Text>
         </View>
+      ) : null}
+
+      {showRetainedClassicMiniPlayer && currentSession && activeClassicMiniPlayerLayout.safeAreaBackgroundExtension > 0 ? (
+        <View
+          pointerEvents="none"
+          style={[
+            styles.miniPlayerSafeAreaBackground,
+            {
+              bottom: activeClassicMiniPlayerLayout.visualSurfaceBottom,
+              height: activeClassicMiniPlayerLayout.safeAreaBackgroundExtension,
+            },
+          ]}
+        />
       ) : null}
 
       {showRetainedClassicMiniPlayer && currentSession ? (
@@ -10105,10 +10137,13 @@ function SoundscapeApp({
 
       {surfaceVisible ? <SafeAreaView
         edges={["bottom", "left", "right"]}
-        onLayout={handleBottomNavigationLayout}
         style={styles.persistentSectionNavSafeArea}
       >
-        <View accessibilityLabel="Persistent section navigation" style={styles.persistentSectionNav}>
+        <View
+          accessibilityLabel="Persistent section navigation"
+          onLayout={handleBottomNavigationLayout}
+          style={styles.persistentSectionNav}
+        >
           {mobileSectionNavOptions.map((option) => {
             const selected = option.key === activeSectionKey;
             return (
@@ -10178,12 +10213,19 @@ export default function App() {
   const savedDestinationRequestRef = useRef(0);
   const [savedDestinationIntent, setSavedDestinationIntent] = useState<SavedDestinationIntentV1 | null>(null);
   const [classicMiniPlayerOverlay, setClassicMiniPlayerOverlay] = useState<ClassicMiniPlayerOverlayMetricsV1>({ present: false, height: 0 });
-  const [retainedMiniPlayerBottomOffset, setRetainedMiniPlayerBottomOffset] = useState<number | null>(null);
+  const [retainedMiniPlayerLayout, setRetainedMiniPlayerLayout] = useState<ClassicMiniPlayerOverlayLayoutV1 | null>(null);
   const handleClassicMiniPlayerLayoutChange = useCallback((next: ClassicMiniPlayerOverlayMetricsV1) => {
     setClassicMiniPlayerOverlay((current) => current.present === next.present && current.height === next.height ? current : next);
   }, []);
-  const handleClassicOverlayLayoutChange = useCallback((bottomOffset: number) => {
-    setRetainedMiniPlayerBottomOffset((current) => current === bottomOffset ? current : bottomOffset);
+  const handleClassicOverlayLayoutChange = useCallback((next: ClassicMiniPlayerOverlayLayoutV1) => {
+    setRetainedMiniPlayerLayout((current) => current
+      && current.visualSurfaceBottom === next.visualSurfaceBottom
+      && current.interactiveBottom === next.interactiveBottom
+      && current.safeAreaBackgroundExtension === next.safeAreaBackgroundExtension
+      && current.contentBottomPadding === next.contentBottomPadding
+      && current.exposedContentGap === next.exposedContentGap
+        ? current
+        : next);
   }, []);
   const openClassicRoute = (route: DirectedClassicRouteV1, returnTab: DirectedTabV1) => {
     setClassicEverMounted(true);
@@ -10233,7 +10275,7 @@ export default function App() {
             directedModeBackLabel={`Back to ${classicReturnTab === "sessions" ? "Sessions" : classicReturnTab === "library" ? "Library" : "Saved"}`}
             savedDestinationIntent={savedDestinationIntent}
             onSavedDestinationConsumed={handleSavedDestinationConsumed}
-            retainedMiniPlayerBottomOffset={retainedMiniPlayerBottomOffset}
+            retainedMiniPlayerLayout={retainedMiniPlayerLayout}
             onClassicMiniPlayerLayoutChange={handleClassicMiniPlayerLayoutChange}
           />
         ) : null}
@@ -13929,6 +13971,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 14,
+    zIndex: 1,
+  },
+  miniPlayerSafeAreaBackground: {
+    backgroundColor: visualTheme.midnightOak,
+    left: 0,
+    position: "absolute",
+    right: 0,
   },
   miniPlayerMainRow: {
     width: "100%",

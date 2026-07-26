@@ -1,15 +1,15 @@
 {
-  "canonicalPrivateCommit": "9635e173f3fa5aeabf12a1e03d5d56b3fa6b7471",
+  "canonicalPrivateCommit": "91fd914c5abf8b1b91c780ca41d6e3daec2fa2ad",
   "exportedPaths": [
     {
       "path": ".github/workflows/ios-internal.yml",
-      "byteLength": 14061,
-      "sha256": "979a58bc685a94115fa7cf0ea409120091610c247cab58ec922c309b7c0925b3"
+      "byteLength": 14092,
+      "sha256": "8c76942b530d4cfd8b220753b60920545252d57f9e06c80bd1b12cd59fc4b9dc"
     },
     {
       "path": "App.tsx",
-      "byteLength": 559011,
-      "sha256": "5d980ef0f30c834b7263673fe576be21f2bc30ae8dda95199d332141c514d2e0"
+      "byteLength": 560929,
+      "sha256": "83d9bcc266f0836e6482cb087f8b73bf6f88865e9628fb3e3d6d8060d563028f"
     },
     {
       "path": "README.md",
@@ -18,13 +18,13 @@
     },
     {
       "path": "app.config.js",
-      "byteLength": 1868,
-      "sha256": "c8b6fde3723e5d1ea727664dcb409d81270c39737af8a0f40db21bbc0155050b"
+      "byteLength": 1899,
+      "sha256": "0c187fcdf3a8fbad24c8581f063fd13d8004fe47b584d57ee74ef05590d205d4"
     },
     {
       "path": "app.json",
       "byteLength": 1321,
-      "sha256": "68be9c898a278c27fc39a967a6e3a7cde1d48c2d861d5f65acfc878b55c997cf"
+      "sha256": "1c44d49c3628bbb76792e67345ed84f7c2cec16211466910f6f7e414f7dd49db"
     },
     {
       "path": "assets/icon.png",
@@ -253,8 +253,8 @@
     },
     {
       "path": "src/directedSessions/DirectedSessionsExperienceV1.tsx",
-      "byteLength": 78081,
-      "sha256": "7d44c8b0fd06572ca1976444fbd8df48ffe3d5a38349750505a621f38755bfc1"
+      "byteLength": 79247,
+      "sha256": "f327f81b7f7ecf6d2ba7d1de5232a760f590580771a0b9d194c528be4ab0602c"
     },
     {
       "path": "src/directedSessions/directedContinuationPolicyV1.ts",
@@ -463,8 +463,8 @@
     },
     {
       "path": "src/ui/classicMiniPlayerOverlayLayoutV1.ts",
-      "byteLength": 2417,
-      "sha256": "7bf2dd1831180a6f0b63bc08768a7ff57d3ce0c78de053ebdd2c4bc8ab6c7765"
+      "byteLength": 6433,
+      "sha256": "838d8796b8ac0d69ac95d78c6933cbdd2c2df6a0591e0648aa9eeceae481237b"
     },
     {
       "path": "src/ui/classicVisualAuthorityV1.ts",
