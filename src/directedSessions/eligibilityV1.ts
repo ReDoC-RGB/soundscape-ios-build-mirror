@@ -1,5 +1,6 @@
 import type { DirectedSceneIdV1 } from "./sceneScoresV1";
 import { getDirectedSceneScoreV1 } from "./sceneScoresV1";
+import { getDirectedContentEvidenceV1 } from "./directedContentEvidenceV1";
 import { SLOW_RAIN_RECONCILED_EVIDENCE_V1 } from "../catalog/slowRainReconciledEvidenceV1";
 
 export type DirectedOfflinePackageAssetV1 = Readonly<{
@@ -74,11 +75,29 @@ const packageAsset = (
   replacementRequired: options.replacementRequired ?? true,
 });
 
+const evidencedPackageAsset = (
+  assetId: string,
+  options: Readonly<{ primaryRequired?: boolean; replacementRequired?: boolean }> = {},
+): DirectedOfflinePackageAssetV1 => {
+  const evidence = getDirectedContentEvidenceV1(assetId);
+  return packageAsset(
+    evidence.assetId,
+    evidence.productionUri,
+    evidence.expectedBytes,
+    evidence.checksumSha256,
+    {
+      persistentDownloadEligible: evidence.persistentDownloadAllowed,
+      primaryRequired: options.primaryRequired,
+      replacementRequired: options.replacementRequired,
+    },
+  );
+};
+
 export const DIRECTED_OFFLINE_PACKAGES_V1: Readonly<Record<DirectedSceneIdV1, DirectedOfflinePackageV1>> = Object.freeze({
   "rain-desk-v1": Object.freeze({
     contractVersion: 1,
     sceneId: "rain-desk-v1",
-    scoreHash: "06271ef741f41a84e282aba9469514d65763e4a2075772b5508fa4dcc9eabd35",
+    scoreHash: "94238a0830ef18b9c1b37e511c779192f3b07e2320c1d63c2407cc0c31645bfc",
     productionEligible: true,
     assets: Object.freeze([
       packageAsset(
@@ -88,33 +107,33 @@ export const DIRECTED_OFFLINE_PACKAGES_V1: Readonly<Record<DirectedSceneIdV1, Di
         SLOW_RAIN_RECONCILED_EVIDENCE_V1.delivery.checksumSha256,
         { persistentDownloadEligible: true, primaryRequired: true, replacementRequired: false },
       ),
-      packageAsset("m6-nonvoice-bb9-026-book-handling", "https://cdn.freesound.org/previews/250/250017_389377-lq.mp3", 1_142_352, "7cfbfece218d2b48556a638c229243d3980ae4dffaf183bf61a664d9133d2865"),
-      packageAsset("m6-nonvoice-bb9-032-paper-handling", "https://cdn.freesound.org/previews/534/534957_37011-lq.mp3", 703_224, "7927e6af2fded8311a844f4ae6d58c868f62ce427824e1de024ca9db0c3e6e35"),
-      packageAsset("m6-nonvoice-bb9-033-pencil-and-marker-writing", "https://cdn.freesound.org/previews/530/530190_6652872-lq.mp3", 775_176, "fe14bc229e2b0c1560e465d5dca4151ab8a0f85b2e893470a5f55617d71e8f87"),
-      packageAsset("m6-nonvoice-bb9-025-book-open-close-and-pages", "https://cdn.freesound.org/previews/734/734547_13973196-lq.mp3", 387_361, "b6695e457fcab4b562bbb27787654e6a64c38c47a5e2cdce11a5ad6f7fbd15f9"),
+      evidencedPackageAsset("m6-nonvoice-bb9-026-book-handling"),
+      evidencedPackageAsset("m6-nonvoice-bb9-032-paper-handling"),
+      evidencedPackageAsset("m6-nonvoice-bb9-033-pencil-and-marker-writing"),
+      evidencedPackageAsset("m6-nonvoice-bb9-025-book-open-close-and-pages"),
     ]),
   }),
   "porcelain-table-v1": Object.freeze({
     contractVersion: 1,
     sceneId: "porcelain-table-v1",
-    scoreHash: "91f1e5848c3bd7bff832b0c42e8d0968036fa747cdc68d54ea3c988505815817",
+    scoreHash: "8c6dbd113bede538c92fcf6b8c930efa35d973523fd8dbec5783b0d80cd55840",
     productionEligible: true,
     assets: Object.freeze([
-      packageAsset("m6-nonvoice-bb9-013-shells-on-marble-and-ceramic", "https://cdn.freesound.org/previews/800/800116_2520418-lq.mp3", 181_296, "c7f49190e118cc61136211f27e9ed712c8d84bbc874fc7f5e2dc5d49b9d8b18d", { primaryRequired: true }),
-      packageAsset("m6-nonvoice-bb10-009-finger-tapping-on-table", "https://cdn.freesound.org/previews/557/557363_7281605-lq.mp3", 94_944, "74b7c6180da6f31de24034882491fc2b1003ec84ddfd5dde5a4aea3f06fcd387"),
-      packageAsset("m6-nonvoice-bb9-009-finger-tapping-on-metal-pipe", "https://cdn.freesound.org/previews/811/811807_13183432-lq.mp3", 188_664, "97fb94f2fe276fc91b7a932a11ca9654393e8412b09e17d9c4193768213749c4"),
-      packageAsset("m6-nonvoice-bb9-012-screwdriver-taps-and-coin-jar", "https://cdn.freesound.org/previews/435/435814_6262563-lq.mp3", 500_744, "4248440768e50ca583d40c11356a10f09462a5047dfb624aec40459be7991e73"),
+      evidencedPackageAsset("m6-nonvoice-bb9-013-shells-on-marble-and-ceramic", { primaryRequired: true }),
+      evidencedPackageAsset("m6-nonvoice-bb10-009-finger-tapping-on-table"),
+      evidencedPackageAsset("m6-nonvoice-bb9-009-finger-tapping-on-metal-pipe"),
+      evidencedPackageAsset("m6-nonvoice-bb9-012-screwdriver-taps-and-coin-jar"),
     ]),
   }),
   "soft-wardrobe-v1": Object.freeze({
     contractVersion: 1,
     sceneId: "soft-wardrobe-v1",
-    scoreHash: "efad5676934c2a2e2ea7dbf7809556b6ed76a1d3b17be84a898e2b73e181ba47",
+    scoreHash: "a740a91cd8cba18329c823a21c5a28353ea4b78cb72383686612a0efbccf8175",
     productionEligible: true,
     assets: Object.freeze([
-      packageAsset("m6-nonvoice-bb9-057-zip-and-rustling-fabric", "https://cdn.freesound.org/previews/728/728156_6033218-lq.mp3", 266_712, "2b7b362323058ca6197380db3cb995df1388c832b67592529c235380413b8076", { primaryRequired: true }),
-      packageAsset("m6-nonvoice-bb9-050-leather-jacket-handling", "https://cdn.freesound.org/previews/770/770050_13973196-lq.mp3", 312_744, "116417bb8d722b8eb69becd0d2e7e601dfe7fb6208161aa27a562f7b894f4398"),
-      packageAsset("m6-nonvoice-bb9-051-plastic-hairbrush", "https://cdn.freesound.org/previews/199/199299_2723971-lq.mp3", 418_584, "aa59f5a606e43cba8539af6261b88a5a3846b22547a29c4c6c37b2919bc16c8f"),
+      evidencedPackageAsset("m6-nonvoice-bb9-057-zip-and-rustling-fabric", { primaryRequired: true }),
+      evidencedPackageAsset("m6-nonvoice-bb9-050-leather-jacket-handling"),
+      evidencedPackageAsset("m6-nonvoice-bb9-051-plastic-hairbrush"),
     ]),
   }),
 });

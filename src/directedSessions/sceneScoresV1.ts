@@ -1,3 +1,5 @@
+import { getDirectedContentEvidenceV1 } from "./directedContentEvidenceV1";
+
 export const DIRECTED_SCENE_SCORE_CONTRACT_VERSION = 1 as const;
 
 export type DirectedSceneIdV1 = "rain-desk-v1" | "porcelain-table-v1" | "soft-wardrobe-v1";
@@ -150,6 +152,19 @@ const asset = (
   warningRequired: false,
 });
 
+const evidencedAsset = (assetId: string, required: boolean): DirectedAssetV1 => {
+  const evidence = getDirectedContentEvidenceV1(assetId);
+  return asset(
+    evidence.assetId,
+    evidence.title,
+    evidence.productionUri,
+    evidence.durationMs,
+    evidence.loopEligible,
+    required,
+    evidence.persistentDownloadAllowed,
+  );
+};
+
 const phase = (
   phaseId: string,
   label: string,
@@ -208,7 +223,7 @@ const rainDeskScoreV1: DirectedSceneScoreV1 = Object.freeze({
   contractVersion: 1,
   sceneId: "rain-desk-v1",
   sceneVersion: 1,
-  scoreHash: "06271ef741f41a84e282aba9469514d65763e4a2075772b5508fa4dcc9eabd35",
+  scoreHash: "94238a0830ef18b9c1b37e511c779192f3b07e2320c1d63c2407cc0c31645bfc",
   title: "Rain Desk",
   trajectory: "Paper to Pencil",
   cardCopy: "Rain settles, paper moves, pencil comes closer.",
@@ -218,11 +233,11 @@ const rainDeskScoreV1: DirectedSceneScoreV1 = Object.freeze({
   contentGateCustomerCopy: null,
   outputProfiles,
   assets: Object.freeze([
-    asset(RAIN.bed, "Slow Rain", "https://soundscape.wellmadesystems.com/mobile-catalog-slice/kpfbNpr4n9exCDcz30C8Kp3Mzd8nNaHN/freesound-slow-rain-loop.mp3", 73_415, true, true, true),
-    asset(RAIN.book, "Book handling", "https://cdn.freesound.org/previews/250/250017_389377-lq.mp3", 132_024, false, false),
-    asset(RAIN.paper, "Paper handling", "https://cdn.freesound.org/previews/534/534957_37011-lq.mp3", 75_528, false, false),
-    asset(RAIN.pencil, "Pencil and marker writing", "https://cdn.freesound.org/previews/530/530190_6652872-lq.mp3", 82_368, false, false),
-    asset(RAIN.pages, "Book open, close, and pages", "https://cdn.freesound.org/previews/734/734547_13973196-lq.mp3", 44_208, false, false),
+    asset(RAIN.bed, "Slow Rain", "https://soundscape.wellmadesystems.com/mobile-catalog-slice/kpfbNpr4n9exCDcz30C8Kp3Mzd8nNaHN/freesound-slow-rain-loop.mp3", 73_440, true, true, true),
+    evidencedAsset(RAIN.book, false),
+    evidencedAsset(RAIN.paper, false),
+    evidencedAsset(RAIN.pencil, false),
+    evidencedAsset(RAIN.pages, false),
   ]),
   requiredAssetIds: Object.freeze([RAIN.bed, RAIN.paper]),
   optionalAssetIds: Object.freeze([RAIN.book, RAIN.pencil, RAIN.pages]),
@@ -264,20 +279,20 @@ const porcelainTableScoreV1: DirectedSceneScoreV1 = Object.freeze({
   contractVersion: 1,
   sceneId: "porcelain-table-v1",
   sceneVersion: 1,
-  scoreHash: "91f1e5848c3bd7bff832b0c42e8d0968036fa747cdc68d54ea3c988505815817",
+  scoreHash: "8c6dbd113bede538c92fcf6b8c930efa35d973523fd8dbec5783b0d80cd55840",
   title: "Porcelain Table",
-  trajectory: "Shells to Wood",
-  cardCopy: "Ceramic detail opens into wood and soft metal.",
+  trajectory: "Ceramic to Table",
+  cardCopy: "Porcelain detail settles into restrained table contact.",
   durationMs: 900_000,
   visualThemeId: "porcelain-table",
   productionEligible: true,
   contentGateCustomerCopy: null,
   outputProfiles,
   assets: Object.freeze([
-    asset(PORCELAIN.shells, "Shells on marble and ceramic", "https://cdn.freesound.org/previews/800/800116_2520418-lq.mp3", 20_592, false, true),
-    asset(PORCELAIN.wood, "Finger tapping on table", "https://cdn.freesound.org/previews/557/557363_7281605-lq.mp3", 12_480, false, false),
-    asset(PORCELAIN.metal, "Finger tapping on metal pipe", "https://cdn.freesound.org/previews/811/811807_13183432-lq.mp3", 21_840, false, false),
-    asset(PORCELAIN.mixed, "Screwdriver taps and coin jar", "https://cdn.freesound.org/previews/435/435814_6262563-lq.mp3", 60_744, false, false),
+    evidencedAsset(PORCELAIN.shells, true),
+    evidencedAsset(PORCELAIN.wood, false),
+    evidencedAsset(PORCELAIN.metal, false),
+    evidencedAsset(PORCELAIN.mixed, false),
   ]),
   requiredAssetIds: Object.freeze([PORCELAIN.shells]),
   optionalAssetIds: Object.freeze([PORCELAIN.wood, PORCELAIN.metal, PORCELAIN.mixed]),
@@ -291,10 +306,10 @@ const porcelainTableScoreV1: DirectedSceneScoreV1 = Object.freeze({
     Object.freeze({ pairId: "porcelain-metal-mixed", assetIds: Object.freeze([PORCELAIN.metal, PORCELAIN.mixed] as const) }),
   ]),
   phases: Object.freeze([
-    phase("shells-arrive", "Shells arrive", 0, 180_000, "porcelain-shells", "Wood pulse"),
-    phase("wood-pulse", "Wood pulse", 180_000, 420_000, "porcelain-wood", "Metal reply"),
-    phase("metal-reply", "Metal reply", 420_000, 660_000, "porcelain-metal", "Mixed objects"),
-    phase("mixed-objects", "Mixed objects", 660_000, 840_000, "porcelain-mixed", "Surface clears"),
+    phase("ceramic-arrives", "Ceramic arrives", 0, 180_000, "porcelain-shells", "Table contact"),
+    phase("table-contact", "Table contact", 180_000, 420_000, "porcelain-wood", "Glaze reply"),
+    phase("glaze-reply", "Glaze reply", 420_000, 660_000, "porcelain-metal", "Objects align"),
+    phase("objects-align", "Objects align", 660_000, 840_000, "porcelain-mixed", "Surface clears"),
     phase("surface-clears", "Surface clears", 840_000, 900_000, "porcelain-clear", null),
   ]),
   events: Object.freeze([
@@ -321,7 +336,7 @@ const softWardrobeScoreV1: DirectedSceneScoreV1 = Object.freeze({
   contractVersion: 1,
   sceneId: "soft-wardrobe-v1",
   sceneVersion: 1,
-  scoreHash: "efad5676934c2a2e2ea7dbf7809556b6ed76a1d3b17be84a898e2b73e181ba47",
+  scoreHash: "a740a91cd8cba18329c823a21c5a28353ea4b78cb72383686612a0efbccf8175",
   title: "Soft Wardrobe",
   trajectory: "Fabric to Brush",
   cardCopy: "Fabric folds, leather shifts, brush passes thin out.",
@@ -331,9 +346,9 @@ const softWardrobeScoreV1: DirectedSceneScoreV1 = Object.freeze({
   contentGateCustomerCopy: null,
   outputProfiles,
   assets: Object.freeze([
-    asset(WARDROBE.fabric, "Zip and rustling fabric", "https://cdn.freesound.org/previews/728/728156_6033218-lq.mp3", 28_944, false, true),
-    asset(WARDROBE.leather, "Leather jacket handling", "https://cdn.freesound.org/previews/770/770050_13973196-lq.mp3", 36_096, false, false),
-    asset(WARDROBE.brush, "Plastic hairbrush", "https://cdn.freesound.org/previews/199/199299_2723971-lq.mp3", 45_528, false, false),
+    evidencedAsset(WARDROBE.fabric, true),
+    evidencedAsset(WARDROBE.leather, false),
+    evidencedAsset(WARDROBE.brush, false),
   ]),
   requiredAssetIds: Object.freeze([WARDROBE.fabric]),
   optionalAssetIds: Object.freeze([WARDROBE.leather, WARDROBE.brush]),

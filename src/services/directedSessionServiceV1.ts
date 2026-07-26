@@ -434,9 +434,16 @@ export class DirectedSessionServiceV1 {
       throw this.customerActivationError("aggregate-owner-query", "AGGREGATE_OWNER_QUERY_FAILED", DIRECTED_INACTIVE_CUSTOMER_COPY, error);
     }
     // Android's existing aggregate owner fences every classic and directed definition
-    // with one monotonically increasing generation. Allocate above both authorities;
-    // starting at 1 after a retained classic owner was the released Android failure.
-    const generationId = allocateDirectedGenerationV1([previous?.generationId, aggregateGeneration]);
+    // with one monotonically increasing generation. Allocate above both native authorities and
+    // the JS terminal owner identity that survives media-service teardown. The terminal fence is
+    // process-local, so its generation is authoritative for exactly the lifetime in which a late
+    // projection from the ended owner can still be rejected; after process death both disappear.
+    const generationId = allocateDirectedGenerationV1([
+      previous?.generationId,
+      aggregateGeneration,
+      this.terminalEndFence?.generationId,
+      this.lastExplicitlyEndedState?.generationId,
+    ]);
     this.traceActivationStage("JS_GENERATION_ALLOCATION_COMPLETE", "COMPLETE");
     const sessionId = `directed:${input.sceneId}:${generationId}`;
     const layerIdByAsset = new Map(variant.assets.map((candidate) => [candidate.assetId, `directed:${candidate.assetId}`]));

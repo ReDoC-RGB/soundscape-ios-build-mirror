@@ -362,11 +362,11 @@ const playbackTraceDisplayRefreshMillis = 250;
 const playbackTraceEventLoopGapThresholdMillis = 250;
 const sessionReplacementFadeMillis = 120;
 const appIterationInfo = {
-  label: "Alpha 0.15.3",
-  displayLabel: "Alpha 0.15.3 — Safe-Area Mini-Player and Action Reachability Fix",
-  currentUpdate: "Alpha 0.15.3 — Safe-Area Mini-Player and Action Reachability Fix",
-  codename: "safe-area-mini-player-action-reachability-fix-v1",
-  fullInternalLabel: "Alpha 0.15.3+safe-area-mini-player-action-reachability-fix-v1",
+  label: "Alpha 0.16.1",
+  displayLabel: "Alpha 0.16.1 — Android Directed Playback Activation Fix",
+  currentUpdate: "Alpha 0.16.1 — Android Directed Playback Activation Fix",
+  codename: "android-directed-playback-activation-fix-v1",
+  fullInternalLabel: "Alpha 0.16.1+android-directed-playback-activation-fix-v1",
   acceptedNativeBaseline: {
     label: "Alpha 0.11.7",
     displayLabel: "Alpha 0.11.7 — Single Preview Selection-Ready Fix",

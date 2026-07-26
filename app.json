@@ -3,10 +3,8 @@
     "name": "Soundscape",
     "slug": "soundscape-mobile",
     "scheme": "soundscape",
-    "version": "0.12.1",
-    "runtimeVersion": {
-      "policy": "fingerprint"
-    },
+    "version": "0.16.1",
+
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -18,7 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.wellmadesystems.soundscape",
-      "buildNumber": "19",
+      "buildNumber": "20",
       "infoPlist": {
         "UIBackgroundModes": [
           "audio"
@@ -27,7 +25,7 @@
     },
     "android": {
       "package": "com.wellmadesystems.soundscape",
-      "versionCode": 26,
+      "versionCode": 27,
       "permissions": [
         "android.permission.POST_NOTIFICATIONS"
       ],
@@ -40,6 +38,9 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "runtimeVersion": {
+      "policy": "fingerprint"
     },
     "updates": {
       "url": "https://u.expo.dev/231a55ee-5482-4142-8c1d-dbdfd2eda501"

@@ -1,15 +1,15 @@
 {
-  "canonicalPrivateCommit": "91fd914c5abf8b1b91c780ca41d6e3daec2fa2ad",
+  "canonicalPrivateCommit": "822379958d7ae6f91aa1bf5b4a7858846df0b3ae",
   "exportedPaths": [
     {
       "path": ".github/workflows/ios-internal.yml",
-      "byteLength": 14092,
-      "sha256": "8c76942b530d4cfd8b220753b60920545252d57f9e06c80bd1b12cd59fc4b9dc"
+      "byteLength": 14073,
+      "sha256": "539ab4e66cbd24e068cef242ff0a48e2d96d0649dc9352b531dd9f85167b0404"
     },
     {
       "path": "App.tsx",
-      "byteLength": 560929,
-      "sha256": "83d9bcc266f0836e6482cb087f8b73bf6f88865e9628fb3e3d6d8060d563028f"
+      "byteLength": 560901,
+      "sha256": "b0f5fcd9f3691b1074ffcb236da433e7ec391ac522b49c4bfe81504b780a28f4"
     },
     {
       "path": "README.md",
@@ -18,13 +18,13 @@
     },
     {
       "path": "app.config.js",
-      "byteLength": 1899,
-      "sha256": "0c187fcdf3a8fbad24c8581f063fd13d8004fe47b584d57ee74ef05590d205d4"
+      "byteLength": 1880,
+      "sha256": "79df27b3d16dffb20c6434a5ca9e477880e87903628dda9b26b5543694954443"
     },
     {
       "path": "app.json",
-      "byteLength": 1321,
-      "sha256": "1c44d49c3628bbb76792e67345ed84f7c2cec16211466910f6f7e414f7dd49db"
+      "byteLength": 1322,
+      "sha256": "02734ee1a9680da0d9daead5bd8a34a1b840b1e295c7fbc594f2d682f99ac1cb"
     },
     {
       "path": "assets/icon.png",
@@ -257,14 +257,19 @@
       "sha256": "f327f81b7f7ecf6d2ba7d1de5232a760f590580771a0b9d194c528be4ab0602c"
     },
     {
+      "path": "src/directedSessions/directedContentEvidenceV1.ts",
+      "byteLength": 11761,
+      "sha256": "18765414c7e691618963241059e36b75be35d2bff1f70dff0bced738a02dea37"
+    },
+    {
       "path": "src/directedSessions/directedContinuationPolicyV1.ts",
       "byteLength": 1938,
       "sha256": "aa03c44a400a5870f366129d8c0c4a4699f817c6139ccc003e155fa5e562dc2b"
     },
     {
       "path": "src/directedSessions/eligibilityV1.ts",
-      "byteLength": 15522,
-      "sha256": "cae8a37771e86b3816680d9cf82fe72973de5cee29dd0bdce10c90f8d9a75797"
+      "byteLength": 14706,
+      "sha256": "dae839ce049f4b1cc241fb834b7bf675cdf00872551d943bdb982f89d0b797f2"
     },
     {
       "path": "src/directedSessions/foregroundProjectionPolicyV1.ts",
@@ -283,8 +288,8 @@
     },
     {
       "path": "src/directedSessions/sceneScoresV1.ts",
-      "byteLength": 28644,
-      "sha256": "927b3294d0232ea48b80b2ef9a202529f503d52894e5e214a93961e7140cac07"
+      "byteLength": 28021,
+      "sha256": "67dc345f1bddb32a5f6d3aeb1282398ec7fdf9dbad3106992c0157726116e913"
     },
     {
       "path": "src/directedSessions/sessionStateV1.ts",
@@ -428,8 +433,8 @@
     },
     {
       "path": "src/services/directedSessionServiceV1.ts",
-      "byteLength": 44086,
-      "sha256": "7ffc6f52089636bb4d06f4a753cddc10b939ab2f88a9545c2720e7dac3db1cc4"
+      "byteLength": 44417,
+      "sha256": "65b601db7180d78b448604c1e33bc63468b503898bf7b851758fa811c3cda7f6"
     },
     {
       "path": "src/services/evidencePersistenceV1.ts",
