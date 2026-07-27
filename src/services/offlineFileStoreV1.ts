@@ -135,6 +135,24 @@ export async function canReachRemoteMediaSourceV1(
   }
 }
 
+export async function canReachRemoteMediaSourceWithinV1(
+  remoteUri: string,
+  timeoutMs: number,
+  externalSignal?: AbortSignal,
+): Promise<boolean> {
+  const controller = new AbortController();
+  const abortFromExternal = () => controller.abort();
+  if (externalSignal?.aborted) controller.abort();
+  else externalSignal?.addEventListener("abort", abortFromExternal, { once: true });
+  const timeout = setTimeout(() => controller.abort(), Math.max(1, timeoutMs));
+  try {
+    return await canReachRemoteMediaSourceV1(remoteUri, controller.signal);
+  } finally {
+    clearTimeout(timeout);
+    externalSignal?.removeEventListener("abort", abortFromExternal);
+  }
+}
+
 export async function writeLocalBackupFileV1(text: string, createdAt: string): Promise<File> {
   ensureDirectory(backupRoot);
   const stamp = createdAt.replace(/[:.]/g, "-");

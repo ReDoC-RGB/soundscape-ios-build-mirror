@@ -1,9 +1,9 @@
 const UNBOUND_SOURCE_COMMIT = "0000000000000000000000000000000000000000";
 const RELEASE = Object.freeze({
-  label: "Alpha 0.16.3",
-  displayLabel: "Alpha 0.16.3 — Rain Desk Native Opening Correction",
-  codename: "rain-desk-native-opening-correction-v1",
-  internalLabel: "Alpha 0.16.3+rain-desk-native-opening-correction-v1",
+  label: "Alpha 0.16.4",
+  displayLabel: "Alpha 0.16.4 — Saved Sessions Navigation Safety Correction",
+  codename: "saved-sessions-navigation-safety-correction-v1",
+  internalLabel: "Alpha 0.16.4+saved-sessions-navigation-safety-correction-v1",
 });
 
 module.exports = ({ config }) => {

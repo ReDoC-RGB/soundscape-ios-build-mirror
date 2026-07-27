@@ -63,6 +63,18 @@ import {
   type SavedDestinationIntentV1,
 } from "./src/navigation/savedDestinationIntentV1";
 import { planClassicNavigationSurfaceV1, planClassicPlayerOpenV1 } from "./src/navigation/classicNavigationOwnershipV1";
+import {
+  applySavedDestructiveNavigationBoundaryV1,
+  canConfirmSavedSessionDeleteV1,
+  cancelSavedSessionDeleteV1,
+  clearSavedDestructiveAuthorityV1,
+  createSavedDestructiveAuthorityV1,
+  requestSavedSessionDeleteV1,
+  savedDestructiveCommandTokenV1,
+  selectManagedSavedSessionV1,
+  type SavedDestructiveCommandTokenV1,
+  type SavedDestructiveContextV1,
+} from "./src/navigation/savedDestructiveNavigationAuthorityV1";
 
 const mobileCatalogSounds: MobileCatalogSound[] = [
   ...baselineMobileCatalogSounds,
@@ -362,11 +374,11 @@ const playbackTraceDisplayRefreshMillis = 250;
 const playbackTraceEventLoopGapThresholdMillis = 250;
 const sessionReplacementFadeMillis = 120;
 const appIterationInfo = {
-  label: "Alpha 0.16.3",
-  displayLabel: "Alpha 0.16.3 — Rain Desk Native Opening Correction",
-  currentUpdate: "Alpha 0.16.3 — Rain Desk Native Opening Correction",
-  codename: "rain-desk-native-opening-correction-v1",
-  fullInternalLabel: "Alpha 0.16.3+rain-desk-native-opening-correction-v1",
+  label: "Alpha 0.16.4",
+  displayLabel: "Alpha 0.16.4 — Saved Sessions Navigation Safety Correction",
+  currentUpdate: "Alpha 0.16.4 — Saved Sessions Navigation Safety Correction",
+  codename: "saved-sessions-navigation-safety-correction-v1",
+  fullInternalLabel: "Alpha 0.16.4+saved-sessions-navigation-safety-correction-v1",
   acceptedNativeBaseline: {
     label: "Alpha 0.11.7",
     displayLabel: "Alpha 0.11.7 — Single Preview Selection-Ready Fix",
@@ -1394,15 +1406,19 @@ function SoundscapeApp({
   const [recentSoundIds, setRecentSoundIds] = useState<string[]>([]);
   const [savedSessions, setSavedSessions] = useState<SavedSession[]>([]);
   const [savedSessionsStorageReady, setSavedSessionsStorageReady] = useState(false);
-  const [savedAreaTab, setSavedAreaTab] = useState<SavedAreaTab>(initialSavedAreaTab);
+  const [savedAreaTab, setSavedAreaTabState] = useState<SavedAreaTab>(initialSavedAreaTab);
+  const savedAreaTabRef = useRef<SavedAreaTab>(initialSavedAreaTab);
   const [savedDestinationLayoutRevision, setSavedDestinationLayoutRevision] = useState(0);
   const [savedSessionSortMode, setSavedSessionSortMode] = useState<SavedSessionSortMode>("Recently used");
   const [savedSessionDialog, setSavedSessionDialog] = useState<SavedSessionDialogState | null>(null);
   const [savedSessionNameInput, setSavedSessionNameInput] = useState("");
   const [savedSessionNoteInput, setSavedSessionNoteInput] = useState("");
   const [savedSessionStorageError, setSavedSessionStorageError] = useState<string | null>(null);
+  // These React values are render projections of savedDestructiveAuthorityRef;
+  // the generation/revision-fenced navigation authority remains the command source of truth.
   const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<string | null>(null);
   const [managedSavedSessionId, setManagedSavedSessionId] = useState<string | null>(null);
+  const [, forceSavedDestructiveAuthorityRender] = useState(0);
   const [pendingSavedSessionStart, setPendingSavedSessionStart] = useState<PendingSavedSessionStart | null>(null);
   const [currentSavedSessionId, setCurrentSavedSessionId] = useState<string | null>(null);
   const [savedSessionStartRequest, setSavedSessionStartRequest] = useState<SavedSessionStartRequest | null>(null);
@@ -1422,7 +1438,91 @@ function SoundscapeApp({
   const [onboardingStepIndex, setOnboardingStepIndex] = useState(0);
   const [selectedOnboardingIntentKey, setSelectedOnboardingIntentKey] = useState("fan");
   const [selectedOnboardingAvoidanceKeys, setSelectedOnboardingAvoidanceKeys] = useState<string[]>([]);
-  const [settingsOpen, setSettingsOpen] = useState(initialSettingsOpen);
+  const [settingsOpen, setSettingsOpenState] = useState(initialSettingsOpen);
+  const settingsOpenRef = useRef(initialSettingsOpen);
+  const initialSavedDestructiveContextRef = useRef<SavedDestructiveContextV1>({
+    surface: surfaceVisible ? "classic" : "directed",
+    section: initialSectionKey,
+    savedTab: initialSavedAreaTab,
+    settingsOpen: initialSettingsOpen,
+    destinationRevision: savedDestinationIntent?.requestId ?? 0,
+  });
+  const savedDestructiveContextRef = useRef<SavedDestructiveContextV1>(initialSavedDestructiveContextRef.current);
+  const savedDestructiveAuthorityRef = useRef(createSavedDestructiveAuthorityV1(initialSavedDestructiveContextRef.current));
+
+  const publishSavedDestructiveAuthorityV1 = (nextAuthority: typeof savedDestructiveAuthorityRef.current) => {
+    if (nextAuthority === savedDestructiveAuthorityRef.current) return;
+    savedDestructiveAuthorityRef.current = nextAuthority;
+    setPendingDeleteSessionId(nextAuthority.pendingDeleteSessionId);
+    setManagedSavedSessionId(nextAuthority.managedSavedSessionId);
+    forceSavedDestructiveAuthorityRender((revision) => revision + 1);
+  };
+  const commitSavedDestructiveNavigationBoundaryV1 = (nextSavedContext: SavedDestructiveContextV1) => {
+    savedDestructiveContextRef.current = nextSavedContext;
+    publishSavedDestructiveAuthorityV1(
+      applySavedDestructiveNavigationBoundaryV1(savedDestructiveAuthorityRef.current, nextSavedContext),
+    );
+  };
+  const clearCurrentSavedDestructiveAuthorityV1 = (preserveManagedSession: boolean = false) => {
+    publishSavedDestructiveAuthorityV1(
+      clearSavedDestructiveAuthorityV1(savedDestructiveAuthorityRef.current, preserveManagedSession),
+    );
+  };
+  const setSavedAreaTab = (nextTab: SavedAreaTab) => {
+    const nextSavedContext: SavedDestructiveContextV1 = {
+      ...savedDestructiveContextRef.current,
+      savedTab: nextTab,
+      destinationRevision: savedDestructiveContextRef.current.destinationRevision + 1,
+    };
+    commitSavedDestructiveNavigationBoundaryV1(nextSavedContext);
+    savedAreaTabRef.current = nextTab;
+    setSavedAreaTabState(nextTab);
+  };
+  const setSettingsOpen = (next: boolean | ((current: boolean) => boolean)) => {
+    const nextSettingsOpen = typeof next === "function" ? next(settingsOpenRef.current) : next;
+    const nextSavedContext: SavedDestructiveContextV1 = {
+      ...savedDestructiveContextRef.current,
+      settingsOpen: nextSettingsOpen,
+    };
+    commitSavedDestructiveNavigationBoundaryV1(nextSavedContext);
+    settingsOpenRef.current = nextSettingsOpen;
+    setSettingsOpenState(nextSettingsOpen);
+  };
+  const handleReturnToDirectedSessionsV1 = () => {
+    commitSavedDestructiveNavigationBoundaryV1({
+      surface: "directed",
+      section: null,
+      savedTab: null,
+      settingsOpen: false,
+      destinationRevision: savedDestructiveContextRef.current.destinationRevision + 1,
+    });
+    directedModeBack?.();
+  };
+  useLayoutEffect(() => {
+    const routeSection: SavedDestructiveContextV1["section"] = !surfaceVisible
+      ? null
+      : directedClassicRoute === "player" || directedClassicRoute === "saved-mixes" || directedClassicRoute === "saved-sounds"
+        ? "player"
+        : directedClassicRoute === "browse"
+          ? "browse"
+          : directedClassicRoute === "presets"
+            ? "presets"
+            : "fast-start";
+    const routeSavedTab: SavedAreaTab | null = !surfaceVisible || routeSection !== "player"
+      ? null
+      : directedClassicRoute === "saved-sounds"
+        ? "sounds"
+        : directedClassicRoute === "saved-mixes"
+          ? "sessions"
+          : savedAreaTabRef.current;
+    commitSavedDestructiveNavigationBoundaryV1({
+      surface: surfaceVisible ? "classic" : "directed",
+      section: routeSection,
+      savedTab: routeSavedTab,
+      settingsOpen: surfaceVisible ? settingsOpenRef.current : false,
+      destinationRevision: savedDestinationIntent?.requestId ?? savedDestructiveContextRef.current.destinationRevision,
+    });
+  }, [surfaceVisible, directedClassicRoute, savedDestinationIntent?.requestId]);
   const [settingsStorageReady, setSettingsStorageReady] = useState(false);
   const [defaultTimerPreference, setDefaultTimerPreference] = useState<SessionTimerOptionMinutes>(defaultLocalSettings.defaultTimerMinutes);
   const [startTabPreference, setStartTabPreference] = useState<MobileSectionKey>(defaultLocalSettings.startTabKey);
@@ -5002,6 +5102,12 @@ function SoundscapeApp({
   };
 
   const setActiveSection = (sectionKey: MobileSectionKey) => {
+    const nextSavedContext: SavedDestructiveContextV1 = {
+      ...savedDestructiveContextRef.current,
+      section: sectionKey,
+      savedTab: sectionKey === "player" ? savedAreaTabRef.current : null,
+    };
+    commitSavedDestructiveNavigationBoundaryV1(nextSavedContext);
     activeSectionKeyRef.current = sectionKey;
     setActiveSectionKey(sectionKey);
   };
@@ -5111,9 +5217,13 @@ function SoundscapeApp({
 
   const handleSectionJump = (sectionKey: MobileSectionKey) => {
     invalidateSavedDestinationIntent();
+    commitSavedDestructiveNavigationBoundaryV1({
+      ...savedDestructiveContextRef.current,
+      section: sectionKey,
+      savedTab: sectionKey === "player" ? savedAreaTabRef.current : null,
+      destinationRevision: savedDestructiveContextRef.current.destinationRevision + 1,
+    });
     setSettingsOpen(false);
-    setPendingDeleteSessionId(null);
-    setManagedSavedSessionId(null);
     setActiveSection(sectionKey);
     scrollViewRef.current?.scrollToOffset({ offset: 0, animated: false });
   };
@@ -6525,6 +6635,7 @@ function SoundscapeApp({
       return;
     }
 
+    clearCurrentSavedDestructiveAuthorityV1();
     sessionClearOperationIdRef.current += 1;
     sessionRestartCoordinatorRef.current.invalidate();
     layeredPresetPreviewCoordinatorRef.current.invalidate();
@@ -7132,7 +7243,7 @@ function SoundscapeApp({
     sessionId?: string,
     linkToCurrent: boolean = false,
   ) => {
-    setPendingDeleteSessionId(null);
+    clearCurrentSavedDestructiveAuthorityV1(true);
     const existingSession = sessionId ? savedSessions.find((session) => session.id === sessionId) : null;
     const effectiveDraft = draft ?? (existingSession ? {
       name: existingSession.name,
@@ -7210,24 +7321,44 @@ function SoundscapeApp({
   const handleDuplicateSavedSession = (sessionId: string) => {
     setSavedSessions((current) => duplicateSavedSession(current, sessionId));
     showTransientNotification("Session duplicated with a new ID.");
-    setPendingDeleteSessionId(null);
+    clearCurrentSavedDestructiveAuthorityV1(true);
   };
 
-  const handleDeleteSavedSession = (sessionId: string) => {
-    if (pendingDeleteSessionId !== sessionId) {
-      setPendingDeleteSessionId(sessionId);
-      showTransientNotification("Delete requires confirmation.");
+  const handleDeleteSavedSession = (sessionId: string, commandToken: SavedDestructiveCommandTokenV1) => {
+    const authority = savedDestructiveAuthorityRef.current;
+    const context = savedDestructiveContextRef.current;
+    const request = requestSavedSessionDeleteV1(authority, context, commandToken, sessionId);
+    if (authority.pendingDeleteSessionId !== sessionId) {
+      if (request.state !== authority) {
+        publishSavedDestructiveAuthorityV1(request.state);
+        showTransientNotification("Delete requires confirmation.");
+      }
+      return;
+    }
+    if (
+      !request.confirmationReady
+      || !canConfirmSavedSessionDeleteV1(request.state, context, commandToken, sessionId)
+    ) {
       return;
     }
     setSavedSessions((current) => deleteSavedSession(current, sessionId));
     if (currentSavedSessionId === sessionId) setCurrentSavedSessionId(null);
-    setPendingDeleteSessionId(null);
+    clearCurrentSavedDestructiveAuthorityV1();
     showTransientNotification("Session deleted.");
   };
 
-  const handleCancelDeleteSavedSession = (sessionId: string) => {
-    if (pendingDeleteSessionId !== sessionId) return;
-    setPendingDeleteSessionId(null);
+  const handleCancelDeleteSavedSession = (sessionId: string, commandToken: SavedDestructiveCommandTokenV1) => {
+    const authority = savedDestructiveAuthorityRef.current;
+    if (authority.pendingDeleteSessionId !== sessionId) return;
+    const context = savedDestructiveContextRef.current;
+    const nextAuthority = cancelSavedSessionDeleteV1(
+      authority,
+      context,
+      commandToken,
+      sessionId,
+    );
+    if (nextAuthority === authority) return;
+    publishSavedDestructiveAuthorityV1(nextAuthority);
     showTransientNotification("Delete canceled.");
   };
 
@@ -7422,7 +7553,7 @@ function SoundscapeApp({
   };
 
   const handleStartSavedSession = (session: SavedSession) => {
-    setPendingDeleteSessionId(null);
+    clearCurrentSavedDestructiveAuthorityV1();
     const resolution = resolveSavedSession(
       session,
       mobileCatalogSounds,
@@ -8091,7 +8222,7 @@ function SoundscapeApp({
           <>
         {directedModeBack ? (
           <View style={styles.directedReturnRow}>
-            <ProofButton label={directedModeBackLabel} onPress={directedModeBack} secondary compact />
+            <ProofButton label={directedModeBackLabel} onPress={handleReturnToDirectedSessionsV1} secondary compact />
           </View>
         ) : null}
         <View style={[styles.compactAppHeader, useStackedClassicHeader ? styles.classicHeaderStacked : null]}>
@@ -8103,8 +8234,6 @@ function SoundscapeApp({
             accessibilityRole="button"
             accessibilityState={{ expanded: settingsOpen }}
             onPress={() => {
-              setPendingDeleteSessionId(null);
-              setManagedSavedSessionId(null);
               setSettingsOpen((currentSettingsOpen) => !currentSettingsOpen);
             }}
             style={({ pressed }) => [
@@ -9563,8 +9692,6 @@ function SoundscapeApp({
                   key={tab.key}
                   onPress={() => {
                     invalidateSavedDestinationIntent();
-                    setPendingDeleteSessionId(null);
-                    setManagedSavedSessionId(null);
                     setSavedAreaTab(tab.key);
                   }}
                   style={({ pressed }) => [
@@ -9646,6 +9773,7 @@ function SoundscapeApp({
                 <View style={styles.savedSessionList}>
                   {sortedSavedSessions.map((session) => {
                     const pendingStart = pendingSavedSessionStart?.sessionId === session.id;
+                    const destructiveCommandToken = savedDestructiveCommandTokenV1(savedDestructiveAuthorityRef.current);
                     return (
                       <View key={session.id} style={styles.savedSessionCard}>
                         <View style={styles.savedSessionHeaderRow}>
@@ -9674,8 +9802,13 @@ function SoundscapeApp({
                             accessibilityLabel={`Manage ${session.name}`}
                             label={managedSavedSessionId === session.id ? "Close" : "Manage"}
                             onPress={() => {
-                              setManagedSavedSessionId((current) => current === session.id ? null : session.id);
-                              setPendingDeleteSessionId(null);
+                              const authority = savedDestructiveAuthorityRef.current;
+                              publishSavedDestructiveAuthorityV1(selectManagedSavedSessionV1(
+                                authority,
+                                savedDestructiveContextRef.current,
+                                destructiveCommandToken,
+                                authority.managedSavedSessionId === session.id ? null : session.id,
+                              ));
                             }}
                             secondary
                             compact
@@ -9694,14 +9827,14 @@ function SoundscapeApp({
                                     accessibilityLabel={`Confirm delete ${session.name}. Destructive action`}
                                     accessibilityHint="Deletes only this saved session."
                                     label="Confirm delete"
-                                    onPress={() => handleDeleteSavedSession(session.id)}
+                                    onPress={() => handleDeleteSavedSession(session.id, destructiveCommandToken)}
                                     destructive
                                     compact
                                   />
                                   <ProofButton
                                     accessibilityLabel={`Cancel delete ${session.name}`}
                                     label="Cancel"
-                                    onPress={() => handleCancelDeleteSavedSession(session.id)}
+                                    onPress={() => handleCancelDeleteSavedSession(session.id, destructiveCommandToken)}
                                     secondary
                                     compact
                                   />
@@ -9732,7 +9865,7 @@ function SoundscapeApp({
                                   accessibilityLabel={`Delete ${session.name}. Destructive action, confirmation required`}
                                   accessibilityHint="Requires confirmation before deleting."
                                   label="Delete"
-                                  onPress={() => handleDeleteSavedSession(session.id)}
+                                  onPress={() => handleDeleteSavedSession(session.id, destructiveCommandToken)}
                                   balancedAction={!useStackedSavedSessionManageActions}
                                   fullWidth={useStackedSavedSessionManageActions}
                                   secondary

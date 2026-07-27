@@ -12,7 +12,7 @@ import type {
 import { recoverOfflineManifestItem, type OfflineManifestItemV1 } from "../contracts/offlineManifestContractV1";
 import { appPersistence } from "./appPersistence";
 import { OfflineDownloadManager } from "./offlineDownloadManagerV1";
-import { expoOfflineFilePortV1, expoOfflineNetworkPortV1 } from "./offlineFileStoreV1";
+import { canReachRemoteMediaSourceWithinV1, expoOfflineFilePortV1, expoOfflineNetworkPortV1 } from "./offlineFileStoreV1";
 import {
   DIRECTED_STEERING_POLICY_V1,
   getDirectedSceneScoreV1,
@@ -22,6 +22,7 @@ import {
   type DirectedSteeringAxisV1,
 } from "../directedSessions/sceneScoresV1";
 import {
+  authorizeDirectedRemotePlaybackV1,
   createDirectedDownloadInputsV1,
   projectDirectedAvailabilityV1,
   resolveDirectedAssetSourcesV1,
@@ -58,6 +59,7 @@ import { directedNativeCurrentnessCodeV1 } from "../directedSessions/directedNat
 export const DIRECTED_SESSION_SCHEDULER_VERSION_V1 = 1 as const;
 const DIRECTED_OFFLINE_QUOTA_BYTES = 250 * 1024 * 1024;
 const DIRECTED_OFFLINE_RESERVE_BYTES = 25 * 1024 * 1024;
+const DIRECTED_REMOTE_PROBE_TIMEOUT_MS = 5_000;
 const DIRECTED_INACTIVE_CUSTOMER_COPY = "We couldn’t prepare this session. Directed playback is not active.";
 
 export type DirectedActivationStageV1 =
@@ -223,6 +225,8 @@ export class DirectedSessionServiceV1 {
   private explicitEndInFlight: Promise<NativeDirectedSessionStateV1> | null = null;
   private terminalEndPersistenceVerified = true;
   private activationDiagnostic: DirectedActivationDiagnosticV1 | null = null;
+  private activationAttemptEpoch = 0;
+  private pendingActivationAbortController: AbortController | null = null;
 
   constructor() {
     try {
@@ -236,6 +240,7 @@ export class DirectedSessionServiceV1 {
   }
 
   dispose(): void {
+    this.cancelPendingActivationV1();
     this.nativeStateEpoch += 1;
     this.nativeListenerHandle?.remove();
     this.nativeListenerHandle = null;
@@ -323,6 +328,31 @@ export class DirectedSessionServiceV1 {
     return error;
   }
 
+  private beginActivationAttemptV1(): Readonly<{ epoch: number; controller: AbortController }> {
+    this.pendingActivationAbortController?.abort();
+    const controller = new AbortController();
+    const epoch = this.activationAttemptEpoch + 1;
+    this.activationAttemptEpoch = epoch;
+    this.pendingActivationAbortController = controller;
+    return Object.freeze({ epoch, controller });
+  }
+
+  private assertCurrentActivationAttemptV1(attempt: Readonly<{ epoch: number; controller: AbortController }>): void {
+    if (attempt.epoch !== this.activationAttemptEpoch || attempt.controller.signal.aborted) {
+      throw this.customerActivationError(
+        "asset-resolution",
+        "DIRECTED_ACTIVATION_SUPERSEDED",
+        "We couldn’t prepare this session. Nothing started.",
+      );
+    }
+  }
+
+  private cancelPendingActivationV1(): void {
+    this.activationAttemptEpoch += 1;
+    this.pendingActivationAbortController?.abort();
+    this.pendingActivationAbortController = null;
+  }
+
   async refreshCapability(): Promise<number> {
     try {
       this.capabilityVersion = NativeMedia.isAvailable() ? NativeMedia.directedSessionSchedulerVersion() : 0;
@@ -385,10 +415,12 @@ export class DirectedSessionServiceV1 {
   }
 
   async createDirectedSession(input: CreateDirectedSessionInputV1): Promise<NativeDirectedSessionStateV1> {
+    const activationAttempt = this.beginActivationAttemptV1();
     try {
     this.activationDiagnostic = null;
     this.traceActivationStage("JS_CAPABILITY_CHECK_BEGIN", "BEGIN");
     const capability = await this.refreshCapability();
+    this.assertCurrentActivationAttemptV1(activationAttempt);
     this.traceActivationStage(
       capability === DIRECTED_SESSION_SCHEDULER_VERSION_V1 ? "JS_CAPABILITY_CHECK_PASS" : "JS_CAPABILITY_CHECK_REJECT",
       capability === DIRECTED_SESSION_SCHEDULER_VERSION_V1 ? "PASS" : "REJECT",
@@ -413,17 +445,43 @@ export class DirectedSessionServiceV1 {
     // is demoted before native definition; online starts can then use the authenticated remote
     // binding while offline starts fail before creating a ghost aggregate owner.
     const manifestItems = await this.verifiedManifestForPlayback(input.sceneId);
-    const sources = resolveDirectedAssetSourcesV1({ sceneId: input.sceneId, manifestItems, allowRemote: input.allowRemote });
+    this.assertCurrentActivationAttemptV1(activationAttempt);
+    const localSources = resolveDirectedAssetSourcesV1({ sceneId: input.sceneId, manifestItems, allowRemote: false });
+    const requiredRemoteUris = localSources.usable
+      ? []
+      : score.assets
+        .filter((asset) => localSources.missingAssetIds.includes(asset.assetId))
+        .map((asset) => asset.sourceUri);
+    let remoteReachabilityByUri: readonly boolean[] = [];
+    if (input.allowRemote && requiredRemoteUris.length > 0) {
+      this.traceActivationStage("JS_REMOTE_SOURCE_PROBE_BEGIN", "BEGIN");
+      remoteReachabilityByUri = await Promise.all(requiredRemoteUris.map((uri) => canReachRemoteMediaSourceWithinV1(
+        uri,
+        DIRECTED_REMOTE_PROBE_TIMEOUT_MS,
+        activationAttempt.controller.signal,
+      )));
+    }
+    this.assertCurrentActivationAttemptV1(activationAttempt);
+    const remoteSourcesReachable = authorizeDirectedRemotePlaybackV1(input.allowRemote, remoteReachabilityByUri);
+    this.traceActivationStage(
+      localSources.usable || remoteSourcesReachable ? "JS_REMOTE_SOURCE_PROBE_PASS" : "JS_REMOTE_SOURCE_PROBE_REJECT",
+      localSources.usable ? "LOCAL" : remoteSourcesReachable ? "PASS" : "REJECT",
+    );
+    const sources = localSources.usable
+      ? localSources
+      : resolveDirectedAssetSourcesV1({ sceneId: input.sceneId, manifestItems, allowRemote: remoteSourcesReachable });
     if (!sources.usable || sources.sourceMode === null) {
       this.traceActivationStage("JS_ASSET_PREREQUISITE_REJECT", "REJECT");
       throw this.customerActivationError("asset-resolution", "DIRECTED_ASSETS_UNAVAILABLE", "We couldn’t prepare this session. Nothing started.");
     }
+    this.assertCurrentActivationAttemptV1(activationAttempt);
     this.traceActivationStage("JS_ASSET_PREREQUISITE_PASS", "PASS");
     let previous = this.current;
     this.traceActivationStage("JS_DIRECTED_OWNER_QUERY_BEGIN", "BEGIN");
     try {
       const queried = await NativeMedia.getDirectedSessionState();
       if (finiteNativeState(queried)) await this.acceptNativeState(queried);
+      this.assertCurrentActivationAttemptV1(activationAttempt);
       previous = this.current;
       this.traceActivationStage("JS_DIRECTED_OWNER_QUERY_RETURN", "RETURN");
     } catch (error) {
@@ -435,6 +493,7 @@ export class DirectedSessionServiceV1 {
     try {
       const aggregate = await NativeMedia.queryState();
       aggregateGeneration = Number.isFinite(aggregate.generationId) ? aggregate.generationId : null;
+      this.assertCurrentActivationAttemptV1(activationAttempt);
       this.traceActivationStage("JS_AGGREGATE_OWNER_QUERY_RETURN", "RETURN");
     } catch (error) {
       this.traceActivationStage("JS_AGGREGATE_OWNER_QUERY_THROW", "THROW", undefined, error);
@@ -478,6 +537,7 @@ export class DirectedSessionServiceV1 {
       let createdProjection: NativeDirectedSessionStateV1;
       this.traceActivationStage("JS_NATIVE_CREATE_CALL_BEGIN", "BEGIN");
       try {
+        this.assertCurrentActivationAttemptV1(activationAttempt);
         createdProjection = await NativeMedia.createDirectedSession(definition);
         this.traceActivationStage("JS_NATIVE_CREATE_CALL_RETURN", "RETURN");
       } catch (error) {
@@ -540,10 +600,15 @@ export class DirectedSessionServiceV1 {
     } catch (error) {
       this.projectActivationResult("FAILURE", this.activationDiagnostic?.code ?? "DIRECTED_ACTIVATION_FAILED", error);
       throw error;
+    } finally {
+      if (this.pendingActivationAbortController === activationAttempt.controller) {
+        this.pendingActivationAbortController = null;
+      }
     }
   }
 
   async endDirectedSession(): Promise<NativeDirectedSessionStateV1> {
+    this.cancelPendingActivationV1();
     if (this.explicitEndInFlight) return this.explicitEndInFlight;
     if (!this.current && this.lastExplicitlyEndedState) {
       if (!await this.retireDirectedContinuationAuthorityV1(this.lastExplicitlyEndedState)) {

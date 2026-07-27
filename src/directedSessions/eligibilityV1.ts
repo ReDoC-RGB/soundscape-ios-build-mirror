@@ -248,6 +248,13 @@ export function createDirectedDownloadInputsV1(sceneId: DirectedSceneIdV1, now: 
   }));
 }
 
+export function authorizeDirectedRemotePlaybackV1(
+  requested: boolean,
+  reachabilityByUri: readonly boolean[],
+): boolean {
+  return requested && reachabilityByUri.length > 0 && reachabilityByUri.every(Boolean);
+}
+
 export function resolveDirectedAssetSourcesV1(input: Readonly<{
   sceneId: DirectedSceneIdV1;
   manifestItems: readonly DirectedManifestProjectionItemV1[];
