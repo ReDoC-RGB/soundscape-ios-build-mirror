@@ -1,5 +1,5 @@
 {
-  "canonicalPrivateCommit": "043e19d3d04182ad821fa829cc35f6e67e28f02c",
+  "canonicalPrivateCommit": "c853086b0c88c95738a5ba7c13db2c9b10feeb64",
   "exportedPaths": [
     {
       "path": ".github/workflows/ios-internal.yml",
@@ -268,8 +268,8 @@
     },
     {
       "path": "src/directedSessions/DirectedSessionsExperienceV1.tsx",
-      "byteLength": 79247,
-      "sha256": "f327f81b7f7ecf6d2ba7d1de5232a760f590580771a0b9d194c528be4ab0602c"
+      "byteLength": 79167,
+      "sha256": "af0af056121830b723dfa295c40ad9b9fe949352c3aba7bfcdcc77286bd4bcf6"
     },
     {
       "path": "src/directedSessions/directedContentEvidenceV1.ts",
@@ -458,8 +458,8 @@
     },
     {
       "path": "src/services/directedSessionServiceV1.ts",
-      "byteLength": 44227,
-      "sha256": "4f711f3e391c9a54e4599faab4590c830ee0451f8de7560286b75a8673b0c14c"
+      "byteLength": 44407,
+      "sha256": "65cc08c2a105775bb95dcd6d3f02588bf43dc207b841cf3d8014fe7ca9016519"
     },
     {
       "path": "src/services/evidencePersistenceV1.ts",
@@ -473,8 +473,8 @@
     },
     {
       "path": "src/services/offlineDownloadManagerV1.ts",
-      "byteLength": 21996,
-      "sha256": "7ff8f690e218524efa2f918b6d3973ae9b87c14bc58555bf05fcece99dc09f19"
+      "byteLength": 22247,
+      "sha256": "5ff3ab4f3c06e7c7f426cff31c3ec56f7ae4c8158092255cc28653aba23c224d"
     },
     {
       "path": "src/services/offlineFileStoreV1.ts",

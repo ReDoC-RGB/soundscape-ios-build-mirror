@@ -783,7 +783,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
       sceneId: nativeState.sceneId as DirectedSceneIdV1,
       outputProfile: nativeState.outputProfile,
       hardAvoidanceIds: nativeState.hardAvoidanceIds,
-      allowRemote: !nativeState.playingOffline,
+      allowRemote: true,
       initialAppliedSteering: mode === "path" ? nativeState.appliedSteering : ORIGINAL_DIRECTED_STEERING_V1,
       initialManualTrims: mode === "path" ? nativeState.manualTrims : {},
     });
@@ -831,7 +831,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
           <Text style={directedStyles.sectionLabel}>Continue</Text>
           <Text style={directedStyles.cardTitle}>{checkpoint.title}</Text>
           <Text style={directedStyles.body}>{checkpoint.phaseLabel} · Restart from this phase with verified sources.</Text>
-          <DirectedButtonV1 label="Restart current phase" onPress={() => void start({ sceneId: checkpoint.sceneId, outputProfile: checkpoint.outputProfile, hardAvoidanceIds: checkpoint.hardAvoidanceIds, allowRemote: !checkpoint.playingOffline, initialAppliedSteering: checkpoint.appliedSteering, initialManualTrims: checkpoint.manualTrims, restartAtPhaseIndex: checkpoint.phaseIndex })} />
+          <DirectedButtonV1 label="Restart current phase" onPress={() => void start({ sceneId: checkpoint.sceneId, outputProfile: checkpoint.outputProfile, hardAvoidanceIds: checkpoint.hardAvoidanceIds, allowRemote: true, initialAppliedSteering: checkpoint.appliedSteering, initialManualTrims: checkpoint.manualTrims, restartAtPhaseIndex: checkpoint.phaseIndex })} />
         </View>
       ) : null}
       <Text style={directedStyles.listSectionLabel}>Featured session</Text>
@@ -968,7 +968,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
             onLayout={({ nativeEvent }) => setBottomActionClusterHeight(nativeEvent.layout.height)}
             style={directedStyles.bottomActionCluster}
           >
-            <DirectedButtonV1 label={busy ? "Starting…" : selectedVariant.blocked || !available.startable ? "Start unavailable" : "Start session"} onPress={() => void start({ sceneId: selectedSceneId, outputProfile, hardAvoidanceIds: selectedAvoidances, allowRemote: available.playingSourceMode !== "local" })} disabled={busy || selectedVariant.blocked || !available.startable} />
+            <DirectedButtonV1 label={busy ? "Starting…" : selectedVariant.blocked || !available.startable ? "Start unavailable" : "Start session"} onPress={() => void start({ sceneId: selectedSceneId, outputProfile, hardAvoidanceIds: selectedAvoidances, allowRemote: true })} disabled={busy || selectedVariant.blocked || !available.startable} />
             {downloadActionLabel ? <DirectedButtonV1 label={downloadActionLabel} onPress={() => { void downloadPackageForScene(selectedSceneId); }} secondary /> : null}
             {available.state === "offline-missing" ? <DirectedButtonV1 label="Try again when online" onPress={() => void refreshAvailability()} secondary /> : null}
             {available.state === "downloading" ? <DirectedButtonV1 label="Cancel download" onPress={() => directedSessionServiceV1.cancelDirectedPackageDownload(selectedSceneId)} secondary /> : null}

@@ -285,6 +285,10 @@ export class OfflineDownloadManager {
       || item.sourceRevision !== input.sourceRevision
       || item.expectedBytes !== input.expectedBytes
       || item.checksumSha256.toLowerCase() !== input.checksumSha256.toLowerCase();
+    if (item.state === "failed/retryable") {
+      const reason = item.lastErrorTechnicalReason ?? item.lastError ?? "The retained offline source previously failed verification.";
+      return Object.freeze({ state: "unusable", item, reason });
+    }
     if (item.state !== "available" || !item.localUri || item.verifiedBytes !== item.expectedBytes || manifestMismatch) {
       const reason = manifestMismatch ? "The offline manifest generation, source revision, byte count, or checksum is stale." : `The offline manifest state ${item.state} is not a verified available source.`;
       const failed = this.fail(item, now, "integrity", reason);

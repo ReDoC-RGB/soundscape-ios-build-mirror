@@ -987,8 +987,11 @@ export class DirectedSessionServiceV1 {
   private async verifiedManifestForPlayback(sceneId: DirectedSceneIdV1): Promise<readonly OfflineManifestItemV1[]> {
     const manager = await this.getOfflineManager();
     const now = new Date().toISOString();
-    for (const input of createDirectedDownloadInputsV1(sceneId, now)) {
-      await manager.resolveVerifiedLocal(input, now);
+    const verifiedAssetIds = new Set<string>();
+    for (const downloadInput of createDirectedDownloadInputsV1(sceneId, now)) {
+      if (verifiedAssetIds.has(downloadInput.assetId)) continue;
+      verifiedAssetIds.add(downloadInput.assetId);
+      await manager.resolveVerifiedLocal(downloadInput, now);
     }
     const reconciled = manager.enumerate();
     await appPersistence.saveOfflineManifestRaw(JSON.stringify(reconciled));
