@@ -53,6 +53,7 @@ import {
   type DirectedTerminalEndFenceV1,
 } from "../directedSessions/directedContinuationPolicyV1";
 import { compileNativeDirectedSessionDefinitionV1 } from "../directedSessions/nativeDirectedRequestV1";
+import { directedNativeCurrentnessCodeV1 } from "../directedSessions/directedNativeCurrentnessV1";
 
 export const DIRECTED_SESSION_SCHEDULER_VERSION_V1 = 1 as const;
 const DIRECTED_OFFLINE_QUOTA_BYTES = 250 * 1024 * 1024;
@@ -406,7 +407,12 @@ export class DirectedSessionServiceV1 {
       this.traceActivationStage("JS_ASSET_PREREQUISITE_REJECT", "REJECT");
       throw new Error(variant.customerCopy);
     }
-    const manifestItems = await this.getManifestItems();
+    // A persisted "available" manifest row is not live playback authority. Upgrade/install
+    // retention can outlive its app-private file, so revalidate bytes, checksum, media shape,
+    // and normalized URI before selecting any local Directed source. A missing/stale local file
+    // is demoted before native definition; online starts can then use the authenticated remote
+    // binding while offline starts fail before creating a ghost aggregate owner.
+    const manifestItems = await this.verifiedManifestForPlayback(input.sceneId);
     const sources = resolveDirectedAssetSourcesV1({ sceneId: input.sceneId, manifestItems, allowRemote: input.allowRemote });
     if (!sources.usable || sources.sourceMode === null) {
       this.traceActivationStage("JS_ASSET_PREREQUISITE_REJECT", "REJECT");
@@ -911,10 +917,17 @@ export class DirectedSessionServiceV1 {
       || currentAcknowledgement.idempotencyKey !== command.idempotencyKey
       || (expectedTransports && !expectedTransports.includes(current.transport))
     ) {
+      const code = directedNativeCurrentnessCodeV1(current, Object.freeze({
+        sessionId: command.sessionId,
+        generationId: command.generationId,
+        operationId: command.operationId,
+        idempotencyKey: command.idempotencyKey,
+        expectedTransports,
+      }));
       if (activationStages) {
-        throw this.activationError(Object.freeze({ stage: activationStages.acknowledgement, code: "DIRECTED_NATIVE_CURRENTNESS_MISMATCH" }));
+        throw this.activationError(Object.freeze({ stage: activationStages.acknowledgement, code }));
       }
-      throw new Error("DIRECTED_NATIVE_CURRENTNESS_MISMATCH");
+      throw new Error(code);
     }
     return current;
   }
@@ -969,6 +982,17 @@ export class DirectedSessionServiceV1 {
       })();
     }
     return this.offlineManagerLoading;
+  }
+
+  private async verifiedManifestForPlayback(sceneId: DirectedSceneIdV1): Promise<readonly OfflineManifestItemV1[]> {
+    const manager = await this.getOfflineManager();
+    const now = new Date().toISOString();
+    for (const input of createDirectedDownloadInputsV1(sceneId, now)) {
+      await manager.resolveVerifiedLocal(input, now);
+    }
+    const reconciled = manager.enumerate();
+    await appPersistence.saveOfflineManifestRaw(JSON.stringify(reconciled));
+    return reconciled;
   }
 
   private async publishPackage(sceneId: DirectedSceneIdV1, networkAvailable: boolean): Promise<DirectedAvailabilityProjectionV1> {

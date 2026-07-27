@@ -67,6 +67,10 @@ private final class IOSLayeredMediaEngine {
   private var directedCallbacks: [UUID: DispatchSourceTimer] = [:]
   private var directedActiveEvents: [String: String] = [:]
   private var directedActiveActions: [String: DirectedSchedulerActionV1] = [:]
+  private var directedEligiblePendingPlay: Set<String> = []
+  private let directedOpeningCoordinator = DirectedOpeningConsumerCoordinatorV1()
+  private var directedOpeningReadiness: [DirectedOpeningConsumerKeyV1: NSKeyValueObservation] = [:]
+  private var directedOpeningTimeouts: [DirectedOpeningConsumerKeyV1: DispatchSourceTimer] = [:]
   private var directedPhaseCrossfadeMs: Double = 300
   private var maxLayerGain: Float = 0.65
   private var minimumOptionalGain: Float = 0.0001
@@ -457,8 +461,7 @@ private final class IOSLayeredMediaEngine {
     }
     consumeDirectedActions()
     if acknowledgement.status == "accepted", type == "play" || type == "resume" {
-      let activeLayerIds = Set(directedActiveEvents.values)
-      for layerId in activeLayerIds { layers[layerId]?.player.play() }
+      resumeEligibleDirectedConsumers()
     }
     scheduleDirectedWake()
     updateNowPlaying(rate: type == "play" || type == "resume" ? 1 : 0)
@@ -599,8 +602,7 @@ private final class IOSLayeredMediaEngine {
     }
     consumeDirectedActions()
     if acknowledgement.status == "accepted", type == "play" {
-      let activeLayerIds = Set(directedActiveEvents.values)
-      for layerId in activeLayerIds { layers[layerId]?.player.play() }
+      resumeEligibleDirectedConsumers()
     }
     scheduleDirectedWake()
     updateNowPlaying(rate: type == "play" ? 1 : 0)
@@ -645,13 +647,24 @@ private final class IOSLayeredMediaEngine {
 
   private func cancelDirectedRuntime(clearScheduler: Bool, clearActiveEvents: Bool) {
     cancelDirectedWake()
+    directedOpeningCoordinator.cancelAll()
+    directedOpeningReadiness.values.forEach { $0.invalidate() }
+    directedOpeningReadiness.removeAll()
+    for timeout in directedOpeningTimeouts.values {
+      timeout.setEventHandler {}
+      timeout.cancel()
+    }
+    directedOpeningTimeouts.removeAll()
     for timer in directedCallbacks.values {
       timer.setEventHandler {}
       timer.cancel()
     }
     directedCallbacks.removeAll()
     directedActiveActions.removeAll()
-    if clearActiveEvents { directedActiveEvents.removeAll() }
+    if clearActiveEvents {
+      directedActiveEvents.removeAll()
+      directedEligiblePendingPlay.removeAll()
+    }
     currentDirectedLayerId = nil
     if clearScheduler { directedScheduler = nil }
   }
@@ -665,19 +678,7 @@ private final class IOSLayeredMediaEngine {
           scheduler.schedulerFailed()
           continue
         }
-        if layer.player.currentItem == nil { layer.player.insert(AVPlayerItem(url: layer.sourceURL), after: nil) }
-        let sourceOffset = directedSourceOffsetTimeV1(action.sourceOffsetMs)
-        layer.player.seek(to: sourceOffset, toleranceBefore: .zero, toleranceAfter: .zero)
-        let target = min(maxLayerGain, max(minimumOptionalGain, action.gain ?? minimumOptionalGain))
-        layer.player.volume = action.fadeInMs > 0 ? 0 : target
-        layer.player.play()
-        currentDirectedLayerId = layerId
-        directedActiveEvents[eventId] = layerId
-        directedActiveActions[eventId] = action
-        if action.fadeInMs > 0 { scheduleDirectedVolume(layerId: layerId, eventId: eventId, target: target, durationMs: action.fadeInMs) }
-        if !action.continuous, action.durationMs > action.fadeOutMs, action.fadeOutMs > 0 {
-          scheduleDirectedDelayedFade(layerId: layerId, eventId: eventId, delayMs: action.durationMs - action.fadeOutMs, fadeOutMs: action.fadeOutMs)
-        }
+        beginDirectedOpeningConsumer(eventId: eventId, layerId: layerId, layer: layer, action: action)
       case .phaseChanged, .applyGains:
         applyDirectedGains(durationMs: action.type == .phaseChanged ? max(action.fadeInMs, directedPhaseCrossfadeMs) : 250)
       case .terminalFade:
@@ -696,6 +697,146 @@ private final class IOSLayeredMediaEngine {
     }
   }
 
+  private func directedOpeningReadiness(_ status: AVPlayerItem.Status) -> DirectedOpeningConsumerReadinessV1 {
+    switch status {
+    case .readyToPlay: return .ready
+    case .failed: return .failed
+    case .unknown: return .unknown
+    @unknown default: return .unknown
+    }
+  }
+
+  private func cleanupDirectedOpeningConsumer(_ key: DirectedOpeningConsumerKeyV1) {
+    directedOpeningReadiness.removeValue(forKey: key)?.invalidate()
+    if let timeout = directedOpeningTimeouts.removeValue(forKey: key) {
+      timeout.setEventHandler {}
+      timeout.cancel()
+    }
+    directedOpeningCoordinator.cancel(key: key)
+  }
+
+  private func cancelDirectedOpeningConsumers(eventId: String) {
+    let keys = directedOpeningReadiness.keys.filter { $0.eventId == eventId }
+    for key in keys { cleanupDirectedOpeningConsumer(key) }
+  }
+
+  private func activateEligibleDirectedConsumer(eventId: String, layerId: String, action: DirectedSchedulerActionV1) {
+    guard let player = layers[layerId]?.player, directedActiveEvents[eventId] == layerId else { return }
+    directedEligiblePendingPlay.remove(eventId)
+    let target = min(maxLayerGain, max(minimumOptionalGain, action.gain ?? minimumOptionalGain))
+    player.volume = action.fadeInMs > 0 ? 0 : target
+    player.play()
+    if action.fadeInMs > 0 { scheduleDirectedVolume(layerId: layerId, eventId: eventId, target: target, durationMs: action.fadeInMs) }
+    if !action.continuous, action.durationMs > action.fadeOutMs, action.fadeOutMs > 0 {
+      scheduleDirectedDelayedFade(layerId: layerId, eventId: eventId, delayMs: action.durationMs - action.fadeOutMs, fadeOutMs: action.fadeOutMs)
+    }
+  }
+
+  private func resumeEligibleDirectedConsumers() {
+    for (eventId, layerId) in directedActiveEvents {
+      guard let action = directedActiveActions[eventId] else { continue }
+      if directedEligiblePendingPlay.contains(eventId) {
+        activateEligibleDirectedConsumer(eventId: eventId, layerId: layerId, action: action)
+      } else {
+        layers[layerId]?.player.play()
+      }
+    }
+  }
+
+  private func beginDirectedOpeningConsumer(
+    eventId: String,
+    layerId: String,
+    layer: LayerPlayback,
+    action: DirectedSchedulerActionV1,
+    beforeAudible: (() -> Void)? = nil
+  ) {
+    if layer.player.currentItem == nil { layer.player.insert(AVPlayerItem(url: layer.sourceURL), after: nil) }
+    guard let item = layer.player.currentItem else {
+      if layer.required { directedScheduler?.requiredAssetFailed(layerId) }
+      else { directedActiveEvents.removeValue(forKey: eventId); directedActiveActions.removeValue(forKey: eventId) }
+      return
+    }
+    let expectedOwner = owner
+    let key = DirectedOpeningConsumerKeyV1(
+      sessionId: expectedOwner.sessionId,
+      generationId: expectedOwner.generationId,
+      eventId: eventId,
+      layerId: layerId
+    )
+    cancelDirectedOpeningConsumers(eventId: eventId)
+
+    let observation = item.observe(\.status, options: [.initial, .new]) { [weak self, weak item] observed, _ in
+      DispatchQueue.main.async {
+        guard let self, let item, item === observed else { return }
+        self.directedOpeningCoordinator.readinessChanged(
+          key: key,
+          readiness: self.directedOpeningReadiness(item.status)
+        )
+      }
+    }
+    directedOpeningReadiness[key] = observation
+
+    let timeout = DispatchSource.makeTimerSource(queue: .main)
+    timeout.schedule(deadline: .now() + 15, leeway: .milliseconds(50))
+    timeout.setEventHandler { [weak self, weak timeout] in
+      guard let self, let timeout else { return }
+      timeout.setEventHandler {}
+      timeout.cancel()
+      self.directedOpeningTimeouts.removeValue(forKey: key)
+      self.directedOpeningCoordinator.timeout(key: key)
+    }
+    directedOpeningTimeouts[key] = timeout
+    timeout.resume()
+
+    let sourceOffset = directedSourceOffsetTimeV1(action.sourceOffsetMs)
+    directedOpeningCoordinator.begin(
+      key: key,
+      readiness: directedOpeningReadiness(item.status),
+      startSeek: { [weak self, weak player = layer.player, weak item] completion in
+        guard let self, let player, let item else { completion(false); return }
+        player.seek(to: sourceOffset, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self, weak player, weak item] finished in
+          DispatchQueue.main.async {
+            guard let self, let player, let item,
+              self.owner == expectedOwner,
+              self.layers[layerId] === layer,
+              player.currentItem === item
+            else { completion(false); return }
+            completion(finished)
+          }
+        }
+      },
+      becomeAudible: { [weak self, weak player = layer.player, weak item] in
+        guard let self, let player, let item,
+          self.owner == expectedOwner,
+          self.layers[layerId] === layer,
+          player.currentItem === item
+        else { return }
+        self.cleanupDirectedOpeningConsumer(key)
+        beforeAudible?()
+        self.currentDirectedLayerId = layerId
+        self.directedActiveEvents[eventId] = layerId
+        self.directedActiveActions[eventId] = action
+        if self.directedScheduler?.snapshot().transport == .playing {
+          self.activateEligibleDirectedConsumer(eventId: eventId, layerId: layerId, action: action)
+        } else {
+          player.volume = 0
+          self.directedEligiblePendingPlay.insert(eventId)
+        }
+      },
+      fail: { [weak self] _ in
+        guard let self else { return }
+        self.cleanupDirectedOpeningConsumer(key)
+        if layer.required {
+          self.directedScheduler?.requiredAssetFailed(layerId)
+          self.consumeDirectedActions()
+        } else {
+          self.directedActiveEvents.removeValue(forKey: eventId)
+          self.directedActiveActions.removeValue(forKey: eventId)
+        }
+      }
+    )
+  }
+
   private func effectiveDirectedGain(eventId: String, layerId: String) -> Float {
     guard let gain = directedScheduler?.resolvedGain(eventId: eventId, layerId: layerId) else { return 0 }
     return min(maxLayerGain, max(minimumOptionalGain, gain))
@@ -710,15 +851,17 @@ private final class IOSLayeredMediaEngine {
         continue
       }
       if resolvedLayerId != layerId, let replacement = layers[resolvedLayerId] {
-        if replacement.player.currentItem == nil { replacement.player.insert(AVPlayerItem(url: replacement.sourceURL), after: nil) }
-        let replacementOffsetMs = directedActiveActions[eventId]?.sourceOffsetMs ?? 0
-        let replacementOffset = directedSourceOffsetTimeV1(replacementOffsetMs)
-        replacement.player.seek(to: replacementOffset, toleranceBefore: .zero, toleranceAfter: .zero)
-        replacement.player.volume = 0
-        replacement.player.play()
-        directedActiveEvents[eventId] = resolvedLayerId
-        currentDirectedLayerId = resolvedLayerId
-        scheduleDirectedDetachedVolume(layerId: layerId, target: 0, durationMs: durationMs)
+        guard let action = directedActiveActions[eventId] else { continue }
+        beginDirectedOpeningConsumer(
+          eventId: eventId,
+          layerId: resolvedLayerId,
+          layer: replacement,
+          action: action,
+          beforeAudible: { [weak self] in
+            self?.scheduleDirectedDetachedVolume(layerId: layerId, target: 0, durationMs: durationMs)
+          }
+        )
+        continue
       }
       scheduleDirectedVolume(
         layerId: resolvedLayerId,
@@ -976,9 +1119,8 @@ private final class IOSLayeredMediaEngine {
       if sessionType == "directed", let command = directedSystemCommand("interruption-resume") {
         if directedScheduler?.resumeAfterInterruption(command, osAllows: true) == true {
           adoptDirectedOwner(command, DirectedSchedulerAcknowledgementV1(status: "accepted", operationId: command.owner.operationId, idempotencyKey: command.idempotencyKey, pathRevision: (directedScheduler?.dictionary()["pathRevision"] as? Int) ?? 0, code: nil, message: nil, safeCheckpointWithinMs: 0))
-          let activeLayerIds = Set(directedActiveEvents.values)
-          for layerId in activeLayerIds { layers[layerId]?.player.play() }
           consumeDirectedActions()
+          resumeEligibleDirectedConsumers()
           scheduleDirectedWake()
           updateNowPlaying(rate: 1)
         }

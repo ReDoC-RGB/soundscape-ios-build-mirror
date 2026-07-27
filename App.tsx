@@ -362,11 +362,11 @@ const playbackTraceDisplayRefreshMillis = 250;
 const playbackTraceEventLoopGapThresholdMillis = 250;
 const sessionReplacementFadeMillis = 120;
 const appIterationInfo = {
-  label: "Alpha 0.16.2",
-  displayLabel: "Alpha 0.16.2 — Directed Session Audible Start Fix",
-  currentUpdate: "Alpha 0.16.2 — Directed Session Audible Start Fix",
-  codename: "directed-session-audible-start-fix-v1",
-  fullInternalLabel: "Alpha 0.16.2+directed-session-audible-start-fix-v1",
+  label: "Alpha 0.16.3",
+  displayLabel: "Alpha 0.16.3 — Rain Desk Native Opening Correction",
+  currentUpdate: "Alpha 0.16.3 — Rain Desk Native Opening Correction",
+  codename: "rain-desk-native-opening-correction-v1",
+  fullInternalLabel: "Alpha 0.16.3+rain-desk-native-opening-correction-v1",
   acceptedNativeBaseline: {
     label: "Alpha 0.11.7",
     displayLabel: "Alpha 0.11.7 — Single Preview Selection-Ready Fix",

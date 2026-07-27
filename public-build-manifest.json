@@ -1,15 +1,15 @@
 {
-  "canonicalPrivateCommit": "6b9663c2a30038a76589e01fa6f06642205ea4b0",
+  "canonicalPrivateCommit": "043e19d3d04182ad821fa829cc35f6e67e28f02c",
   "exportedPaths": [
     {
       "path": ".github/workflows/ios-internal.yml",
-      "byteLength": 14055,
-      "sha256": "5b45aa6b945ab1879da40adbbb0aebc252dd9881109e2a6205321afd732c7814"
+      "byteLength": 14133,
+      "sha256": "de82e3df9c691f1763f53fc79fcd5ca872a29588b36111627ce56c4fb86c4af2"
     },
     {
       "path": "App.tsx",
-      "byteLength": 560877,
-      "sha256": "f20069013c0dc7f053dd3566f94bb51f0ca608e786de504a05cb7b33177cbc94"
+      "byteLength": 560881,
+      "sha256": "b18685b9340bc2a55f0bd53fbee5a50e3dad59da494fb6be0546ee0ad241fc02"
     },
     {
       "path": "README.md",
@@ -18,13 +18,13 @@
     },
     {
       "path": "app.config.js",
-      "byteLength": 1862,
-      "sha256": "bc280da3fac42ef38e2297e46f31f68fb9f185dfa6c46436cef809c0cc8e369f"
+      "byteLength": 1865,
+      "sha256": "c2be826e64f5ad7707dbf49c1249a90f01d6d1801d08bd6314f3823f5db7eeae"
     },
     {
       "path": "app.json",
       "byteLength": 1322,
-      "sha256": "0e7b2844cd379160d4b693a4f6155ed1aa944ce9a6574955b6c3be22ffed1848"
+      "sha256": "c6946c9a8dce56e4932476155f607707b3bc772593e125ce9e19ec8b93fb2402"
     },
     {
       "path": "assets/icon.png",
@@ -52,6 +52,11 @@
       "sha256": "6d4617c3d3c0e5ec0afcee86b7f25775469984a5cb2ee0e3b2651a9d6516cb12"
     },
     {
+      "path": "modules/soundscape-layered-media/ios/DirectedOpeningConsumerCoordinatorV1.swift",
+      "byteLength": 3029,
+      "sha256": "969f3a262e0697d7ca908be76266ba17309d94824a62f617f6480e197c267455"
+    },
+    {
       "path": "modules/soundscape-layered-media/ios/DirectedSessionSchedulerV1.swift",
       "byteLength": 40047,
       "sha256": "c207a1158b879b7418b0591825d2f26922180a2a7c2e0073828b693a80e1d84f"
@@ -63,8 +68,8 @@
     },
     {
       "path": "modules/soundscape-layered-media/ios/SoundscapeLayeredMediaModule.swift",
-      "byteLength": 57018,
-      "sha256": "d27452f7471dd43db28a9971a46367e7ef09a1e65a6861ebff650a069e09256d"
+      "byteLength": 62120,
+      "sha256": "dd4d128489d7aeec78dd4b9d2e0a1b1736c0b8238dee8e416b26cba13c1dac68"
     },
     {
       "path": "modules/soundscape-layered-media/src/SoundscapeLayeredMedia.types.ts",
@@ -93,8 +98,18 @@
     },
     {
       "path": "package.json",
-      "byteLength": 3901,
-      "sha256": "89f8bfe4725acfd5506a94d77503749d70cd1d89b4bcf1d99c344e284c15be8c"
+      "byteLength": 4300,
+      "sha256": "339d603f26a553e5e762d61719c0fb11ce8b39b603717f6f2225f0183ff531eb"
+    },
+    {
+      "path": "scripts/alpha-0.16.3-ios-directed-opening-consumer-check.sh",
+      "byteLength": 966,
+      "sha256": "6815d5c74a575540417aec65e557ab3e100c77a37c766249a1bc82e291f18364"
+    },
+    {
+      "path": "scripts/native-tests/DirectedOpeningConsumerCoordinatorV1Tests.swift",
+      "byteLength": 8069,
+      "sha256": "8e66b64bd2e634763e5f7b932f213dc86ef3de6f3c7e312f31880dcdb3b1c2f0"
     },
     {
       "path": "scripts/prepare-public-build-v1.mjs",
@@ -265,6 +280,11 @@
       "path": "src/directedSessions/directedContinuationPolicyV1.ts",
       "byteLength": 1938,
       "sha256": "aa03c44a400a5870f366129d8c0c4a4699f817c6139ccc003e155fa5e562dc2b"
+    },
+    {
+      "path": "src/directedSessions/directedNativeCurrentnessV1.ts",
+      "byteLength": 2519,
+      "sha256": "ee298ed33620f8bc287bc14da0f407a351939943df134d97001d7757e0f6d6bd"
     },
     {
       "path": "src/directedSessions/eligibilityV1.ts",
@@ -438,8 +458,8 @@
     },
     {
       "path": "src/services/directedSessionServiceV1.ts",
-      "byteLength": 42937,
-      "sha256": "6018d98946d11cf3865e6bca7c52a7f7e0f7d5f237cb3ca6bfcb570d1c76bf11"
+      "byteLength": 44227,
+      "sha256": "4f711f3e391c9a54e4599faab4590c830ee0451f8de7560286b75a8673b0c14c"
     },
     {
       "path": "src/services/evidencePersistenceV1.ts",

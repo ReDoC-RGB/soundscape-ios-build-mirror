@@ -58,7 +58,10 @@
     "check:m6-human-review-package": "node scripts/m6-human-review-package-v2-check.mjs",
     "check:m6-resemble-voice-integration": "node scripts/m6-resemble-synthetic-voice-integration-v1-check.mjs",
     "check:m6-catalog-expansion": "node scripts/m6-traditional-asmr-catalog-expansion-v1-check.mjs",
-    "check:m6-internal-physical-review": "node scripts/m6-internal-physical-review-v1-check.mjs"
+    "check:m6-internal-physical-review": "node scripts/m6-internal-physical-review-v1-check.mjs",
+    "check:alpha-0.16.3:ios-directed-opening-consumer": "bash scripts/alpha-0.16.3-ios-directed-opening-consumer-check.sh",
+    "check:alpha-0.16.3:android-directed-rejection-reasons": "node scripts/alpha-0.16.3-android-directed-rejection-reason-map-check.mjs",
+    "check:alpha-0.16.3:android-retained-manifest-authority": "node scripts/alpha-0.16.3-android-retained-manifest-authority-check.mjs"
   },
   "private": true
 }
