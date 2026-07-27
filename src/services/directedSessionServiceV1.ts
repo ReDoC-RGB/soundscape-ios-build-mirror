@@ -52,6 +52,7 @@ import {
   isRecoverableDirectedCheckpointV1,
   type DirectedTerminalEndFenceV1,
 } from "../directedSessions/directedContinuationPolicyV1";
+import { compileNativeDirectedSessionDefinitionV1 } from "../directedSessions/nativeDirectedRequestV1";
 
 export const DIRECTED_SESSION_SCHEDULER_VERSION_V1 = 1 as const;
 const DIRECTED_OFFLINE_QUOTA_BYTES = 250 * 1024 * 1024;
@@ -407,7 +408,7 @@ export class DirectedSessionServiceV1 {
     }
     const manifestItems = await this.getManifestItems();
     const sources = resolveDirectedAssetSourcesV1({ sceneId: input.sceneId, manifestItems, allowRemote: input.allowRemote });
-    if (!sources.usable) {
+    if (!sources.usable || sources.sourceMode === null) {
       this.traceActivationStage("JS_ASSET_PREREQUISITE_REJECT", "REJECT");
       throw this.customerActivationError("asset-resolution", "DIRECTED_ASSETS_UNAVAILABLE", "We couldn’t prepare this session. Nothing started.");
     }
@@ -446,51 +447,25 @@ export class DirectedSessionServiceV1 {
     ]);
     this.traceActivationStage("JS_GENERATION_ALLOCATION_COMPLETE", "COMPLETE");
     const sessionId = `directed:${input.sceneId}:${generationId}`;
-    const layerIdByAsset = new Map(variant.assets.map((candidate) => [candidate.assetId, `directed:${candidate.assetId}`]));
-    const definition: NativeDirectedSessionDefinitionV1 = {
-      sessionId,
-      generationId,
-      operationId: 1,
-      expectedPhaseRevision: 1,
-      expectedPathRevision: 0,
-      idempotencyKey: `${sessionId}:create:1`,
-      sessionType: "directed",
-      contractVersion: 1,
-      sceneId: variant.sceneId,
-      sceneVersion: 1,
-      scoreHash: variant.scoreHash,
-      title: variant.title,
-      trajectory: variant.trajectory,
-      durationMs: variant.durationMs,
-      initialPlayedElapsedMs: variant.phases[Math.max(0, Math.min(variant.phases.length - 1, input.restartAtPhaseIndex ?? 0))].startMs,
-      finalFadeStartMs: variant.finalFadeStartMs,
+    const definition = compileNativeDirectedSessionDefinitionV1({
+      variant,
+      owner: {
+        sessionId,
+        generationId,
+        operationId: 1,
+        expectedPhaseRevision: 1,
+        expectedPathRevision: 0,
+        idempotencyKey: `${sessionId}:create:1`,
+      },
+      sources: {
+        sourceMode: sources.sourceMode,
+        sourceByAssetId: sources.sourceByAssetId,
+      },
       outputProfile: input.outputProfile,
-      hardAvoidanceIds: [...input.hardAvoidanceIds],
-      initialAppliedSteering: { ...(input.initialAppliedSteering ?? ORIGINAL_DIRECTED_STEERING_V1), textureReplacements: { ...(input.initialAppliedSteering?.textureReplacements ?? {}) } },
-      initialManualTrims: { ...(input.initialManualTrims ?? {}) },
-      playingOffline: sources.sourceMode === "local",
-      maxLayerGain: DIRECTED_STEERING_POLICY_V1.maxLayerGain,
-      minimumOptionalGain: DIRECTED_STEERING_POLICY_V1.minimumOptionalGain,
-      phaseCrossfadeMs: DIRECTED_STEERING_POLICY_V1.phaseCrossfadeMs,
-      assets: variant.assets.map((candidate) => ({
-        layerId: layerIdByAsset.get(candidate.assetId) ?? candidate.assetId,
-        assetId: candidate.assetId,
-        title: candidate.title,
-        sourceUri: sources.sourceByAssetId[candidate.assetId],
-        durationMs: candidate.durationMs,
-        loopEligible: candidate.loopEligible,
-        required: candidate.required,
-      })),
-      phases: variant.phases.map((candidate) => ({ ...candidate })),
-      events: variant.events.map((candidate) => ({
-        ...candidate,
-        layerId: layerIdByAsset.get(candidate.assetId) ?? candidate.assetId,
-      })),
-      texturePairs: variant.texturePairs.map((pair) => ({
-        pairId: pair.pairId,
-        layerIds: [layerIdByAsset.get(pair.assetIds[0]) ?? pair.assetIds[0], layerIdByAsset.get(pair.assetIds[1]) ?? pair.assetIds[1]],
-      })),
-    };
+      initialAppliedSteering: input.initialAppliedSteering ?? ORIGINAL_DIRECTED_STEERING_V1,
+      initialManualTrims: input.initialManualTrims ?? {},
+      restartAtPhaseIndex: input.restartAtPhaseIndex,
+    });
     let definitionIssued = false;
     try {
       definitionIssued = true;

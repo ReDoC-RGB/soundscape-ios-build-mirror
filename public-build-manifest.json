@@ -1,15 +1,15 @@
 {
-  "canonicalPrivateCommit": "822379958d7ae6f91aa1bf5b4a7858846df0b3ae",
+  "canonicalPrivateCommit": "6b9663c2a30038a76589e01fa6f06642205ea4b0",
   "exportedPaths": [
     {
       "path": ".github/workflows/ios-internal.yml",
-      "byteLength": 14073,
-      "sha256": "539ab4e66cbd24e068cef242ff0a48e2d96d0649dc9352b531dd9f85167b0404"
+      "byteLength": 14055,
+      "sha256": "5b45aa6b945ab1879da40adbbb0aebc252dd9881109e2a6205321afd732c7814"
     },
     {
       "path": "App.tsx",
-      "byteLength": 560901,
-      "sha256": "b0f5fcd9f3691b1074ffcb236da433e7ec391ac522b49c4bfe81504b780a28f4"
+      "byteLength": 560877,
+      "sha256": "f20069013c0dc7f053dd3566f94bb51f0ca608e786de504a05cb7b33177cbc94"
     },
     {
       "path": "README.md",
@@ -18,13 +18,13 @@
     },
     {
       "path": "app.config.js",
-      "byteLength": 1880,
-      "sha256": "79df27b3d16dffb20c6434a5ca9e477880e87903628dda9b26b5543694954443"
+      "byteLength": 1862,
+      "sha256": "bc280da3fac42ef38e2297e46f31f68fb9f185dfa6c46436cef809c0cc8e369f"
     },
     {
       "path": "app.json",
       "byteLength": 1322,
-      "sha256": "02734ee1a9680da0d9daead5bd8a34a1b840b1e295c7fbc594f2d682f99ac1cb"
+      "sha256": "0e7b2844cd379160d4b693a4f6155ed1aa944ce9a6574955b6c3be22ffed1848"
     },
     {
       "path": "assets/icon.png",
@@ -53,8 +53,8 @@
     },
     {
       "path": "modules/soundscape-layered-media/ios/DirectedSessionSchedulerV1.swift",
-      "byteLength": 38960,
-      "sha256": "69eb5ab9c7db7eaa48110d18332f8d86aff49811b54cf352fd956f99532beb34"
+      "byteLength": 40047,
+      "sha256": "c207a1158b879b7418b0591825d2f26922180a2a7c2e0073828b693a80e1d84f"
     },
     {
       "path": "modules/soundscape-layered-media/ios/SoundscapeLayeredMedia.podspec",
@@ -63,13 +63,13 @@
     },
     {
       "path": "modules/soundscape-layered-media/ios/SoundscapeLayeredMediaModule.swift",
-      "byteLength": 56600,
-      "sha256": "ffb37a336d69b72acd14ad282804c19f143f027fe5b460d76c9a87f1ffb6c3aa"
+      "byteLength": 57018,
+      "sha256": "d27452f7471dd43db28a9971a46367e7ef09a1e65a6861ebff650a069e09256d"
     },
     {
       "path": "modules/soundscape-layered-media/src/SoundscapeLayeredMedia.types.ts",
-      "byteLength": 10140,
-      "sha256": "64ea805c0d8f667e68bedbb5f51bb1cc5ed3699c5fb7150759a76aaca4d94ed1"
+      "byteLength": 10242,
+      "sha256": "1b4dce181da6987eaa98cf5d657ec4f45fef9d8923d163373be838d1b17c167e"
     },
     {
       "path": "modules/soundscape-layered-media/src/SoundscapeLayeredMediaModule.ts",
@@ -269,12 +269,17 @@
     {
       "path": "src/directedSessions/eligibilityV1.ts",
       "byteLength": 14706,
-      "sha256": "dae839ce049f4b1cc241fb834b7bf675cdf00872551d943bdb982f89d0b797f2"
+      "sha256": "f4da863223e6eeed58dbdfb6ac7cf027e91360e78eed45cf409dd86b10531730"
     },
     {
       "path": "src/directedSessions/foregroundProjectionPolicyV1.ts",
       "byteLength": 2782,
       "sha256": "cf70504954cd859059a77341d15d7978daf82f30848e9de2635c32f51c966fda"
+    },
+    {
+      "path": "src/directedSessions/nativeDirectedRequestV1.ts",
+      "byteLength": 4324,
+      "sha256": "a2b64c6fd86823b6b98054f1be86d5731569ddd9904699d0159db2cb8280b480"
     },
     {
       "path": "src/directedSessions/readinessCoordinatorV1.ts",
@@ -288,8 +293,8 @@
     },
     {
       "path": "src/directedSessions/sceneScoresV1.ts",
-      "byteLength": 28021,
-      "sha256": "67dc345f1bddb32a5f6d3aeb1282398ec7fdf9dbad3106992c0157726116e913"
+      "byteLength": 28832,
+      "sha256": "843ecc61d3fcb36583e2f8b838bcbe6ffd14d664db2b622a31aaa6c0b82a2330"
     },
     {
       "path": "src/directedSessions/sessionStateV1.ts",
@@ -433,8 +438,8 @@
     },
     {
       "path": "src/services/directedSessionServiceV1.ts",
-      "byteLength": 44417,
-      "sha256": "65b601db7180d78b448604c1e33bc63468b503898bf7b851758fa811c3cda7f6"
+      "byteLength": 42937,
+      "sha256": "6018d98946d11cf3865e6bca7c52a7f7e0f7d5f237cb3ca6bfcb570d1c76bf11"
     },
     {
       "path": "src/services/evidencePersistenceV1.ts",

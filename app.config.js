@@ -1,9 +1,9 @@
 const UNBOUND_SOURCE_COMMIT = "0000000000000000000000000000000000000000";
 const RELEASE = Object.freeze({
-  label: "Alpha 0.16.1",
-  displayLabel: "Alpha 0.16.1 — Android Directed Playback Activation Fix",
-  codename: "android-directed-playback-activation-fix-v1",
-  internalLabel: "Alpha 0.16.1+android-directed-playback-activation-fix-v1",
+  label: "Alpha 0.16.2",
+  displayLabel: "Alpha 0.16.2 — Directed Session Audible Start Fix",
+  codename: "directed-session-audible-start-fix-v1",
+  internalLabel: "Alpha 0.16.2+directed-session-audible-start-fix-v1",
 });
 
 module.exports = ({ config }) => {

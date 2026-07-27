@@ -2,6 +2,10 @@ import AVFoundation
 import ExpoModulesCore
 import MediaPlayer
 
+private func directedSourceOffsetTimeV1(_ sourceOffsetMs: Double) -> CMTime {
+  CMTime(value: Int64(max(0, sourceOffsetMs).rounded()), timescale: 1_000)
+}
+
 private struct Owner: Equatable {
   let sessionId: String
   let generationId: Int
@@ -662,7 +666,8 @@ private final class IOSLayeredMediaEngine {
           continue
         }
         if layer.player.currentItem == nil { layer.player.insert(AVPlayerItem(url: layer.sourceURL), after: nil) }
-        layer.player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
+        let sourceOffset = directedSourceOffsetTimeV1(action.sourceOffsetMs)
+        layer.player.seek(to: sourceOffset, toleranceBefore: .zero, toleranceAfter: .zero)
         let target = min(maxLayerGain, max(minimumOptionalGain, action.gain ?? minimumOptionalGain))
         layer.player.volume = action.fadeInMs > 0 ? 0 : target
         layer.player.play()
@@ -706,7 +711,9 @@ private final class IOSLayeredMediaEngine {
       }
       if resolvedLayerId != layerId, let replacement = layers[resolvedLayerId] {
         if replacement.player.currentItem == nil { replacement.player.insert(AVPlayerItem(url: replacement.sourceURL), after: nil) }
-        replacement.player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
+        let replacementOffsetMs = directedActiveActions[eventId]?.sourceOffsetMs ?? 0
+        let replacementOffset = directedSourceOffsetTimeV1(replacementOffsetMs)
+        replacement.player.seek(to: replacementOffset, toleranceBefore: .zero, toleranceAfter: .zero)
         replacement.player.volume = 0
         replacement.player.play()
         directedActiveEvents[eventId] = resolvedLayerId

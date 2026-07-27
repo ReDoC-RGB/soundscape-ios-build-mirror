@@ -20,6 +20,9 @@ struct DirectedSchedulerAssetV1 {
   let assetId: String
   let title: String
   let sourceUri: String
+  let productionUri: String
+  let expectedBytes: Int
+  let checksumSha256: String
   let durationMs: Double
   let loopEligible: Bool
   let required: Bool
@@ -38,6 +41,7 @@ struct DirectedSchedulerEventV1 {
   let densityRank: Int
   let timingVariationMs: Double
   let gainVariationDb: Float
+  let sourceOffsetMs: Double
   let fadeInMs: Double
   let fadeOutMs: Double
 }
@@ -178,6 +182,9 @@ struct DirectedSchedulerDefinitionV1 {
         let assetId = item["assetId"] as? String,
         let title = item["title"] as? String,
         let sourceUri = item["sourceUri"] as? String,
+        let productionUri = item["productionUri"] as? String,
+        let expectedBytes = item["expectedBytes"] as? NSNumber,
+        let checksumSha256 = item["checksumSha256"] as? String,
         let duration = item["durationMs"] as? NSNumber
       else { throw DirectedSchedulerErrorV1.invalid("INVALID_DIRECTED_ASSET") }
       return DirectedSchedulerAssetV1(
@@ -185,6 +192,9 @@ struct DirectedSchedulerDefinitionV1 {
         assetId: assetId,
         title: title,
         sourceUri: sourceUri,
+        productionUri: productionUri,
+        expectedBytes: expectedBytes.intValue,
+        checksumSha256: checksumSha256,
         durationMs: duration.doubleValue,
         loopEligible: item["loopEligible"] as? Bool ?? false,
         required: item["required"] as? Bool ?? false
@@ -219,6 +229,7 @@ struct DirectedSchedulerDefinitionV1 {
         let densityRank = item["densityRank"] as? NSNumber,
         let timingVariation = item["timingVariationMs"] as? NSNumber,
         let gainVariation = item["gainVariationDb"] as? NSNumber,
+        let sourceOffset = item["sourceOffsetMs"] as? NSNumber,
         let fadeIn = item["fadeInMs"] as? NSNumber,
         let fadeOut = item["fadeOutMs"] as? NSNumber
       else { throw DirectedSchedulerErrorV1.invalid("INVALID_DIRECTED_EVENT") }
@@ -235,6 +246,7 @@ struct DirectedSchedulerDefinitionV1 {
         densityRank: densityRank.intValue,
         timingVariationMs: timingVariation.doubleValue,
         gainVariationDb: gainVariation.floatValue,
+        sourceOffsetMs: sourceOffset.doubleValue,
         fadeInMs: fadeIn.doubleValue,
         fadeOutMs: fadeOut.doubleValue
       )
@@ -261,8 +273,14 @@ struct DirectedSchedulerDefinitionV1 {
       throw DirectedSchedulerErrorV1.invalid("INVALID_PHASE_TIMELINE")
     }
     let layerIds = Set(assets.map(\.layerId))
-    guard Set(events.map(\.eventId)).count == events.count,
-      events.allSatisfy({ $0.phaseIndex >= 0 && $0.phaseIndex < phases.count && layerIds.contains($0.layerId) })
+    guard assets.allSatisfy({
+      $0.productionUri.hasPrefix("https://") && $0.expectedBytes > 0 &&
+        $0.checksumSha256.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil
+    }), Set(events.map(\.eventId)).count == events.count,
+      events.allSatisfy({ event in
+        event.phaseIndex >= 0 && event.phaseIndex < phases.count && layerIds.contains(event.layerId) &&
+          assets.contains(where: { $0.layerId == event.layerId && event.sourceOffsetMs >= 0 && event.sourceOffsetMs < $0.durationMs })
+      })
     else { throw DirectedSchedulerErrorV1.invalid("INVALID_EVENT_TIMELINE") }
   }
 }
@@ -368,6 +386,7 @@ struct DirectedSchedulerActionV1 {
   let eventId: String?
   let layerId: String?
   let gain: Float?
+  let sourceOffsetMs: Double
   let fadeInMs: Double
   let fadeOutMs: Double
   let durationMs: Double
@@ -762,6 +781,7 @@ final class DirectedSessionSchedulerV1 {
           eventId: nil,
           layerId: nil,
           gain: nil,
+          sourceOffsetMs: 0,
           fadeInMs: definition.phaseCrossfadeMs,
           fadeOutMs: definition.phaseCrossfadeMs,
           durationMs: 0,
@@ -778,6 +798,7 @@ final class DirectedSessionSchedulerV1 {
           eventId: nil,
           layerId: nil,
           gain: nil,
+          sourceOffsetMs: 0,
           fadeInMs: 0,
           fadeOutMs: definition.durationMs - definition.finalFadeStartMs,
           durationMs: 0,
@@ -831,9 +852,10 @@ final class DirectedSessionSchedulerV1 {
       eventId: event.eventId,
       layerId: resolvedLayer,
       gain: effectiveGain(event, trim: trim),
+      sourceOffsetMs: event.sourceOffsetMs,
       fadeInMs: event.fadeInMs,
       fadeOutMs: event.fadeOutMs,
-      durationMs: duration,
+      durationMs: max(0, duration - event.sourceOffsetMs),
       continuous: event.continuous,
       detail: nil
     ))
@@ -1015,6 +1037,7 @@ final class DirectedSessionSchedulerV1 {
       eventId: nil,
       layerId: nil,
       gain: nil,
+      sourceOffsetMs: 0,
       fadeInMs: 0,
       fadeOutMs: 0,
       durationMs: 0,

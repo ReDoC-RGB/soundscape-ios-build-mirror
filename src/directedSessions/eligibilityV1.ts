@@ -97,7 +97,7 @@ export const DIRECTED_OFFLINE_PACKAGES_V1: Readonly<Record<DirectedSceneIdV1, Di
   "rain-desk-v1": Object.freeze({
     contractVersion: 1,
     sceneId: "rain-desk-v1",
-    scoreHash: "94238a0830ef18b9c1b37e511c779192f3b07e2320c1d63c2407cc0c31645bfc",
+    scoreHash: "d6de12e1809d5876928876f07812af376dddda8e518cafb4b746833e08c0b33d",
     productionEligible: true,
     assets: Object.freeze([
       packageAsset(
@@ -116,7 +116,7 @@ export const DIRECTED_OFFLINE_PACKAGES_V1: Readonly<Record<DirectedSceneIdV1, Di
   "porcelain-table-v1": Object.freeze({
     contractVersion: 1,
     sceneId: "porcelain-table-v1",
-    scoreHash: "8c6dbd113bede538c92fcf6b8c930efa35d973523fd8dbec5783b0d80cd55840",
+    scoreHash: "41f373d964fd3e8e8544481b414df03cb6a60c7737cbd3e9557a7d2687a8c6ee",
     productionEligible: true,
     assets: Object.freeze([
       evidencedPackageAsset("m6-nonvoice-bb9-013-shells-on-marble-and-ceramic", { primaryRequired: true }),
@@ -128,7 +128,7 @@ export const DIRECTED_OFFLINE_PACKAGES_V1: Readonly<Record<DirectedSceneIdV1, Di
   "soft-wardrobe-v1": Object.freeze({
     contractVersion: 1,
     sceneId: "soft-wardrobe-v1",
-    scoreHash: "a740a91cd8cba18329c823a21c5a28353ea4b78cb72383686612a0efbccf8175",
+    scoreHash: "9b67643332bb8ade2a78d1d7682474430cce819d80a2fcbc0b74f8b0f9c4706a",
     productionEligible: true,
     assets: Object.freeze([
       evidencedPackageAsset("m6-nonvoice-bb9-057-zip-and-rustling-fabric", { primaryRequired: true }),

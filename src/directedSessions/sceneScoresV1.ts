@@ -12,6 +12,9 @@ export type DirectedAssetV1 = Readonly<{
   assetId: string;
   title: string;
   sourceUri: string;
+  productionUri: string;
+  expectedBytes: number;
+  checksumSha256: string;
   durationMs: number;
   loopEligible: boolean;
   required: boolean;
@@ -43,6 +46,7 @@ export type DirectedEventV1 = Readonly<{
   densityRank: 0 | 1 | 2 | 3;
   timingVariationMs: number;
   gainVariationDb: number;
+  sourceOffsetMs: number;
   fadeInMs: 250;
   fadeOutMs: 500;
 }>;
@@ -137,11 +141,16 @@ const asset = (
   durationMs: number,
   loopEligible: boolean,
   required: boolean,
+  expectedBytes: number,
+  checksumSha256: string,
   persistentDownloadEligible = true,
 ): DirectedAssetV1 => Object.freeze({
   assetId,
   title,
   sourceUri,
+  productionUri: sourceUri,
+  expectedBytes,
+  checksumSha256,
   durationMs,
   loopEligible,
   required,
@@ -161,6 +170,8 @@ const evidencedAsset = (assetId: string, required: boolean): DirectedAssetV1 => 
     evidence.durationMs,
     evidence.loopEligible,
     required,
+    evidence.expectedBytes,
+    evidence.checksumSha256,
     evidence.persistentDownloadAllowed,
   );
 };
@@ -183,7 +194,7 @@ const event = (
   role: DirectedLayerRoleV1,
   gain: number,
   densityRank: 0 | 1 | 2 | 3,
-  options: Partial<Pick<DirectedEventV1, "required" | "continuous" | "timingVariationMs" | "gainVariationDb">> = {},
+  options: Partial<Pick<DirectedEventV1, "required" | "continuous" | "timingVariationMs" | "gainVariationDb" | "sourceOffsetMs">> = {},
 ): DirectedEventV1 => Object.freeze({
   eventId: `${scene}:event:${String(++nextEventSequence).padStart(3, "0")}`,
   phaseIndex,
@@ -196,6 +207,7 @@ const event = (
   densityRank,
   timingVariationMs: options.timingVariationMs ?? 0,
   gainVariationDb: options.gainVariationDb ?? 0,
+  sourceOffsetMs: options.sourceOffsetMs ?? 0,
   fadeInMs: 250,
   fadeOutMs: 500,
 });
@@ -223,7 +235,7 @@ const rainDeskScoreV1: DirectedSceneScoreV1 = Object.freeze({
   contractVersion: 1,
   sceneId: "rain-desk-v1",
   sceneVersion: 1,
-  scoreHash: "94238a0830ef18b9c1b37e511c779192f3b07e2320c1d63c2407cc0c31645bfc",
+  scoreHash: "d6de12e1809d5876928876f07812af376dddda8e518cafb4b746833e08c0b33d",
   title: "Rain Desk",
   trajectory: "Paper to Pencil",
   cardCopy: "Rain settles, paper moves, pencil comes closer.",
@@ -233,9 +245,9 @@ const rainDeskScoreV1: DirectedSceneScoreV1 = Object.freeze({
   contentGateCustomerCopy: null,
   outputProfiles,
   assets: Object.freeze([
-    asset(RAIN.bed, "Slow Rain", "https://soundscape.wellmadesystems.com/mobile-catalog-slice/kpfbNpr4n9exCDcz30C8Kp3Mzd8nNaHN/freesound-slow-rain-loop.mp3", 73_440, true, true, true),
+    asset(RAIN.bed, "Slow Rain", "https://soundscape.wellmadesystems.com/mobile-catalog-slice/kpfbNpr4n9exCDcz30C8Kp3Mzd8nNaHN/freesound-slow-rain-loop.mp3", 73_440, true, true, 1_763_181, "47b22bf44964b2472df21850fb7b65d08e774edcb072887f755f5b28ba034d6a", true),
     evidencedAsset(RAIN.book, false),
-    evidencedAsset(RAIN.paper, false),
+    evidencedAsset(RAIN.paper, true),
     evidencedAsset(RAIN.pencil, false),
     evidencedAsset(RAIN.pages, false),
   ]),
@@ -259,6 +271,7 @@ const rainDeskScoreV1: DirectedSceneScoreV1 = Object.freeze({
   ]),
   events: Object.freeze([
     event("rain", 0, 0, RAIN.bed, "bed", 0.38, 0, { required: true, continuous: true }),
+    event("rain", 0, 0, RAIN.paper, "texture", 0.18, 0, { required: true }),
     event("rain", 0, 40, RAIN.book, "texture", 0.14, 1, { timingVariationMs: -2_000, gainVariationDb: -1 }),
     event("rain", 1, 165, RAIN.paper, "texture", 0.20, 1, { timingVariationMs: 2_000, gainVariationDb: 1 }),
     event("rain", 1, 260, RAIN.paper, "texture", 0.20, 2, { timingVariationMs: -3_000, gainVariationDb: -1 }),
@@ -279,7 +292,7 @@ const porcelainTableScoreV1: DirectedSceneScoreV1 = Object.freeze({
   contractVersion: 1,
   sceneId: "porcelain-table-v1",
   sceneVersion: 1,
-  scoreHash: "8c6dbd113bede538c92fcf6b8c930efa35d973523fd8dbec5783b0d80cd55840",
+  scoreHash: "41f373d964fd3e8e8544481b414df03cb6a60c7737cbd3e9557a7d2687a8c6ee",
   title: "Porcelain Table",
   trajectory: "Ceramic to Table",
   cardCopy: "Porcelain detail settles into restrained table contact.",
@@ -313,7 +326,7 @@ const porcelainTableScoreV1: DirectedSceneScoreV1 = Object.freeze({
     phase("surface-clears", "Surface clears", 840_000, 900_000, "porcelain-clear", null),
   ]),
   events: Object.freeze([
-    event("porcelain", 0, 20, PORCELAIN.shells, "anchor", 0.24, 0, { required: true, timingVariationMs: -2_000, gainVariationDb: -1 }),
+    event("porcelain", 0, 0, PORCELAIN.shells, "anchor", 0.24, 0, { required: true, timingVariationMs: 0, gainVariationDb: -1 }),
     event("porcelain", 0, 60, PORCELAIN.wood, "accent", 0.12, 2, { timingVariationMs: 2_000, gainVariationDb: 1 }),
     event("porcelain", 0, 80, PORCELAIN.shells, "anchor", 0.24, 1, { timingVariationMs: 2_000, gainVariationDb: 1 }),
     event("porcelain", 0, 120, PORCELAIN.wood, "accent", 0.12, 3, { timingVariationMs: -2_000, gainVariationDb: -1 }),
@@ -336,7 +349,7 @@ const softWardrobeScoreV1: DirectedSceneScoreV1 = Object.freeze({
   contractVersion: 1,
   sceneId: "soft-wardrobe-v1",
   sceneVersion: 1,
-  scoreHash: "a740a91cd8cba18329c823a21c5a28353ea4b78cb72383686612a0efbccf8175",
+  scoreHash: "9b67643332bb8ade2a78d1d7682474430cce819d80a2fcbc0b74f8b0f9c4706a",
   title: "Soft Wardrobe",
   trajectory: "Fabric to Brush",
   cardCopy: "Fabric folds, leather shifts, brush passes thin out.",
@@ -369,7 +382,7 @@ const softWardrobeScoreV1: DirectedSceneScoreV1 = Object.freeze({
     phase("folded-quiet", "Folded quiet", 900_000, 960_000, "wardrobe-folded", null),
   ]),
   events: Object.freeze([
-    ...[20, 75, 130, 185].map((at, index) => event("wardrobe", 0, at, WARDROBE.fabric, "anchor", 0.23, ([0, 2, 1, 3] as const)[index], { required: index === 0, timingVariationMs: index % 2 ? -4_000 : 4_000, gainVariationDb: index % 2 ? -1 : 1 })),
+    ...[0, 75, 130, 185].map((at, index) => event("wardrobe", 0, at, WARDROBE.fabric, "anchor", 0.23, ([0, 2, 1, 3] as const)[index], { required: index === 0, timingVariationMs: index === 0 ? 0 : index % 2 ? -4_000 : 4_000, gainVariationDb: index % 2 ? -1 : 1 })),
     ...[225, 285, 345, 405].map((at, index) => event("wardrobe", 1, at, WARDROBE.leather, "texture", 0.19, ([1, 2, 3, 1] as const)[index], { timingVariationMs: index % 2 ? -4_000 : 4_000, gainVariationDb: index % 2 ? -1 : 1 })),
     ...[250, 340].map((at, index) => event("wardrobe", 1, at, WARDROBE.fabric, "anchor", 0.16, ([2, 1] as const)[index], { timingVariationMs: index ? -5_000 : 5_000 })),
     ...[435, 500, 565, 630].map((at, index) => event("wardrobe", 2, at, WARDROBE.brush, "foreground", 0.17, ([1, 2, 3, 1] as const)[index], { timingVariationMs: index % 2 ? -5_000 : 5_000, gainVariationDb: index % 2 ? -1 : 1 })),
@@ -417,6 +430,7 @@ export function validateSceneScoreV1(score: DirectedSceneScoreV1): { valid: bool
     if (assetIds.has(candidate.assetId)) errors.push(`duplicate asset:${candidate.assetId}`);
     assetIds.add(candidate.assetId);
     if (candidate.containsVoice || candidate.manualOnly || candidate.neverAutoplay || candidate.warningRequired) errors.push(`unsafe asset:${candidate.assetId}`);
+    if (candidate.productionUri !== candidate.sourceUri || candidate.expectedBytes <= 0 || !/^[a-f0-9]{64}$/.test(candidate.checksumSha256)) errors.push(`invalid production binding:${candidate.assetId}`);
   }
   if (score.assets.length > 8 || score.events.length > 128) errors.push("score size ceiling exceeded");
   const eventIds = new Set<string>();
@@ -427,6 +441,7 @@ export function validateSceneScoreV1(score: DirectedSceneScoreV1): { valid: bool
     if (!ownerPhase || scoreEvent.startMs < ownerPhase.startMs || scoreEvent.startMs >= ownerPhase.endMs) errors.push(`event outside phase:${scoreEvent.eventId}`);
     if (!assetIds.has(scoreEvent.assetId)) errors.push(`unknown event asset:${scoreEvent.eventId}`);
     if (scoreEvent.gain < 0.06 || scoreEvent.gain > DIRECTED_STEERING_POLICY_V1.maxLayerGain) errors.push(`gain out of range:${scoreEvent.eventId}`);
+    if (scoreEvent.sourceOffsetMs !== 0) errors.push(`invalid source offset:${scoreEvent.eventId}`);
     if (scoreEvent.fadeInMs !== 250 || scoreEvent.fadeOutMs !== 500) errors.push(`unsafe event envelope:${scoreEvent.eventId}`);
   }
   if (score.finalFadeStartMs !== score.durationMs - DIRECTED_STEERING_POLICY_V1.finalFadeMs) errors.push("invalid terminal fade");

@@ -78,6 +78,9 @@ export type NativeDirectedAssetV1 = {
   assetId: string;
   title: string;
   sourceUri: string;
+  productionUri: string;
+  expectedBytes: number;
+  checksumSha256: string;
   durationMs: number;
   loopEligible: boolean;
   required: boolean;
@@ -96,6 +99,7 @@ export type NativeDirectedEventV1 = {
   densityRank: 0 | 1 | 2 | 3;
   timingVariationMs: number;
   gainVariationDb: number;
+  sourceOffsetMs: number;
   fadeInMs: number;
   fadeOutMs: number;
 };
