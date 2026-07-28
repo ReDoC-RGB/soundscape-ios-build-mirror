@@ -56,6 +56,17 @@ import {
   type ClassicMiniPlayerOverlayLayoutV1,
   type ClassicMiniPlayerOverlayMetricsV1,
 } from "../ui/classicMiniPlayerOverlayLayoutV1";
+import {
+  resolveAdaptiveActionClusterProvisionalHeightV1,
+  resolveAdaptiveBrandHeadingProjectionV1,
+  resolveAdaptiveDockHeightV1,
+  resolveAdaptiveMiniPlayerProvisionalHeightV1,
+  resolveAdaptiveNavigationHeightV1,
+  resolveAdaptivePersistentDockViewportV1,
+  resolveAdaptiveTextLayoutV1,
+  resolveAdaptiveTextLinePolicyV1,
+  type AdaptiveDockMeasurementV1,
+} from "../ui/adaptiveTextLayoutV1";
 
 export type DirectedClassicRouteV1 = "fast-start" | "browse" | "presets" | "player" | "saved-mixes" | "saved-sounds" | "settings";
 export type DirectedTabV1 = "sessions" | "library" | "saved";
@@ -96,6 +107,8 @@ function DirectedButtonV1(props: Readonly<{
   destructive?: boolean;
   accessibilityHint?: string;
 }>) {
+  const { fontScale, width } = useWindowDimensions();
+  const adaptiveTextLayout = resolveAdaptiveTextLayoutV1({ width, fontScale });
   return (
     <Pressable
       accessibilityHint={props.accessibilityHint}
@@ -112,7 +125,15 @@ function DirectedButtonV1(props: Readonly<{
         pressed ? directedStyles.pressed : null,
       ]}
     >
-      <Text style={[directedStyles.buttonText, props.secondary ? directedStyles.buttonSecondaryText : null]}>{props.label}</Text>
+      <Text
+        android_hyphenationFrequency="none"
+        lineBreakStrategyIOS="standard"
+        numberOfLines={adaptiveTextLayout.allowConstrainedSingleLine ? 1 : undefined}
+        style={[directedStyles.buttonText, props.secondary ? directedStyles.buttonSecondaryText : null]}
+        textBreakStrategy="balanced"
+      >
+        {props.label}
+      </Text>
     </Pressable>
   );
 }
@@ -193,12 +214,31 @@ function DirectedMiniPlayerV1(props: Readonly<{
   onOpen: () => void;
   onTransport: () => void;
 }>) {
+  const { fontScale, width } = useWindowDimensions();
+  const adaptiveTextLayout = resolveAdaptiveTextLayoutV1({ width, fontScale });
   const pauseLabel = props.state.transport === "playing" ? "Pause" : "Resume";
   return (
     <View style={[directedStyles.miniPlayer, props.compact ? directedStyles.miniPlayerCompact : null]}>
       <Pressable accessibilityHint="Opens the directed session Player" accessibilityRole="button" onPress={props.onOpen} style={directedStyles.miniSummary}>
-        <Text numberOfLines={1} style={directedStyles.miniTitle}>{props.state.title}</Text>
-        <Text accessibilityLiveRegion="polite" numberOfLines={1} style={directedStyles.miniPhase}>{props.state.phaseLabel}</Text>
+        <Text
+          android_hyphenationFrequency="none"
+          lineBreakStrategyIOS="standard"
+          numberOfLines={adaptiveTextLayout.allowConstrainedSingleLine ? 1 : undefined}
+          style={directedStyles.miniTitle}
+          textBreakStrategy="balanced"
+        >
+          {props.state.title}
+        </Text>
+        <Text
+          accessibilityLiveRegion="polite"
+          android_hyphenationFrequency="none"
+          lineBreakStrategyIOS="standard"
+          numberOfLines={adaptiveTextLayout.allowConstrainedSingleLine ? 1 : undefined}
+          style={directedStyles.miniPhase}
+          textBreakStrategy="balanced"
+        >
+          {props.state.phaseLabel}
+        </Text>
         {props.state.pendingSteering ? <Text style={directedStyles.pendingText}>● Change pending</Text> : null}
         <DirectedProgressV1 state={props.state} compact />
       </Pressable>
@@ -248,7 +288,10 @@ function DirectedPlayerV1(props: Readonly<{
         <Text style={directedStyles.eyebrow}>Now playing · {props.state.title}</Text>
         <Text accessibilityLiveRegion="polite" accessibilityRole="header" style={directedStyles.phaseTitle}>{props.state.phaseLabel}</Text>
         <Text style={directedStyles.nextCopy}>{props.state.nextPhaseLabel ? `Next · ${props.state.nextPhaseLabel}` : "Final phase"}</Text>
-        <View style={directedStyles.progressCopyRow}>
+        <View style={[
+          directedStyles.progressCopyRow,
+          props.compact ? directedStyles.progressCopyRowCompact : null,
+        ]}>
           <Text style={directedStyles.progressCopy}>{formatDirectedTimeV1(props.state.playedElapsedMs)} / {formatDirectedTimeV1(props.state.durationMs)}</Text>
           <Text style={directedStyles.progressCopy}>{formatDirectedTimeV1(remaining)} left</Text>
         </View>
@@ -452,12 +495,22 @@ function SessionCardV1(props: Readonly<{
             <AtmosphericSceneV1 compact={!featured} sceneId={props.sceneId} phaseIndex={0} reduceMotionEnabled={props.reduceMotionEnabled} />
           </View>
           <View style={directedStyles.sessionCardCopy}>
-            <View style={directedStyles.sessionCardHeader}>
+            <View style={[
+              directedStyles.sessionCardHeader,
+              props.compact ? directedStyles.sessionCardHeaderCompact : null,
+            ]}>
               <View style={directedStyles.sessionCardTitleBlock}>
                 <Text style={directedStyles.cardTitle}>{score.title}</Text>
                 <Text style={directedStyles.cardTrajectory}>{score.trajectory}</Text>
               </View>
-              <Text accessibilityElementsHidden style={directedStyles.chevron}>›</Text>
+              <Text
+                accessibilityElementsHidden
+                allowFontScaling={false}
+                importantForAccessibility="no"
+                style={directedStyles.chevron}
+              >
+                ›
+              </Text>
             </View>
             <Text style={directedStyles.meta}>{Math.round(score.durationMs / 60_000)} min · No voice{featured ? " · Headphones + speakers" : ""}</Text>
             <Text style={directedStyles.body}>{score.cardCopy}</Text>
@@ -492,9 +545,21 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
   onClassicOverlayLayoutChange: (layout: ClassicMiniPlayerOverlayLayoutV1) => void;
   onOpenClassicLibraryRoute: (route: DirectedClassicRouteV1, returnTab: DirectedTabV1) => void;
 }>) {
-  const { width, fontScale } = useWindowDimensions();
+  const { width, height: screenHeight, fontScale } = useWindowDimensions();
+  const adaptiveTextLayout = resolveAdaptiveTextLayoutV1({ width, fontScale });
+  const brandHeadingProjection = resolveAdaptiveBrandHeadingProjectionV1({
+    width,
+    fontScale,
+    baseFontSize: 28,
+    horizontalInsets: 2 * (classicComponentTokensV1.sectionPadding + classicComponentTokensV1.cardPadding),
+  });
+  const constrainedEssentialTextPolicy = resolveAdaptiveTextLinePolicyV1({
+    fontScale,
+    constrained: true,
+    essential: true,
+  });
   const insets = useSafeAreaInsets();
-  const compact = width <= 360 || fontScale >= 1.35;
+  const compact = adaptiveTextLayout.stackHeader;
   const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
   const [tab, setTab] = useState<DirectedTabV1>(props.initialTab ?? "sessions");
   const [screen, setScreen] = useState<DirectedScreenV1>("root");
@@ -521,9 +586,53 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
   const [message, setMessage] = useState<string | null>(null);
   const [completionSaved, setCompletionSaved] = useState(false);
   const [directedAppState, setDirectedAppState] = useState<DirectedProjectionAppStateV1>(AppState.currentState);
-  const [bottomNavigationContentHeight, setBottomNavigationContentHeight] = useState(58);
-  const [miniPlayerMeasuredHeight, setMiniPlayerMeasuredHeight] = useState(compact ? 118 : 82);
-  const [bottomActionClusterHeight, setBottomActionClusterHeight] = useState(0);
+  const [bottomNavigationMeasurement, setBottomNavigationMeasurement] = useState<AdaptiveDockMeasurementV1>({
+    layoutKey: "",
+    height: 0,
+  });
+  const [miniPlayerMeasurement, setMiniPlayerMeasurement] = useState<AdaptiveDockMeasurementV1>({
+    layoutKey: "",
+    height: 0,
+  });
+  const bottomNavigationContentHeight = resolveAdaptiveDockHeightV1({
+    layoutKey: adaptiveTextLayout.layoutKey,
+    measurement: bottomNavigationMeasurement,
+    provisionalHeight: resolveAdaptiveNavigationHeightV1({
+      itemCount: directedNavigationV1.length,
+      fontScale,
+      normalHeight: 58,
+      minimumTouchTarget: classicComponentTokensV1.controlMinHeight,
+    }),
+  }).height;
+  const miniPlayerMeasuredHeight = resolveAdaptiveDockHeightV1({
+    layoutKey: adaptiveTextLayout.layoutKey,
+    measurement: miniPlayerMeasurement,
+    provisionalHeight: resolveAdaptiveMiniPlayerProvisionalHeightV1({
+      actionCount: 1,
+      fontScale,
+      normalHeight: compact ? 118 : 82,
+    }),
+  }).height;
+  const adaptiveDockViewport = useMemo(() => resolveAdaptivePersistentDockViewportV1({
+    viewportHeight: screenHeight,
+    fontScale,
+    safeAreaBottom: insets.bottom,
+    navigationHeight: bottomNavigationContentHeight,
+    miniPlayerHeight: miniPlayerMeasuredHeight,
+  }), [bottomNavigationContentHeight, fontScale, insets.bottom, miniPlayerMeasuredHeight, screenHeight]);
+  const [bottomActionClusterMeasurement, setBottomActionClusterMeasurement] = useState<AdaptiveDockMeasurementV1>({
+    layoutKey: "",
+    height: 0,
+  });
+  const bottomActionClusterHeight = resolveAdaptiveDockHeightV1({
+    layoutKey: adaptiveTextLayout.layoutKey,
+    measurement: bottomActionClusterMeasurement,
+    provisionalHeight: resolveAdaptiveActionClusterProvisionalHeightV1({
+      actionCount: 2,
+      fontScale,
+      minimumTouchTarget: classicComponentTokensV1.controlMinHeight,
+    }),
+  }).height;
   const projectionInFlight = useRef<Promise<NativeDirectedSessionStateV1 | null> | null>(null);
   const mountedRef = useRef(false);
   const lifecycleEpochRef = useRef(0);
@@ -965,7 +1074,10 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
           </View>
           <Text accessibilityLiveRegion="polite" style={selectedVariant.blocked || !available.startable ? directedStyles.warning : directedStyles.statusBanner}>{selectedVariant.blocked ? selectedVariant.customerCopy : customerReadinessCopy}</Text>
           <View
-            onLayout={({ nativeEvent }) => setBottomActionClusterHeight(nativeEvent.layout.height)}
+            onLayout={({ nativeEvent }) => setBottomActionClusterMeasurement({
+              layoutKey: adaptiveTextLayout.layoutKey,
+              height: nativeEvent.layout.height,
+            })}
             style={directedStyles.bottomActionCluster}
           >
             <DirectedButtonV1 label={busy ? "Starting…" : selectedVariant.blocked || !available.startable ? "Start unavailable" : "Start session"} onPress={() => void start({ sceneId: selectedSceneId, outputProfile, hardAvoidanceIds: selectedAvoidances, allowRemote: true })} disabled={busy || selectedVariant.blocked || !available.startable} />
@@ -996,7 +1108,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
   const showMini = nativeState && ["playing", "paused", "interrupted"].includes(nativeState.transport) && screen !== "player" && screen !== "adjust" && screen !== "completion";
   const anyMiniPlayerPresent = Boolean(showMini || props.classicMiniPlayerOverlay.present);
   const activeMiniPlayerHeight = Math.max(
-    showMini ? miniPlayerMeasuredHeight : 0,
+    showMini ? adaptiveDockViewport.miniPlayerViewportHeight : 0,
     props.classicMiniPlayerOverlay.present ? props.classicMiniPlayerOverlay.height : 0,
   );
   const overlayLayout = resolveClassicMiniPlayerOverlayLayoutV1({
@@ -1022,8 +1134,17 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
   ]);
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={directedStyles.safeAreaShell}>
-      <View style={directedStyles.topBar}>
-        <Text numberOfLines={1} style={directedStyles.brand}>Soundscape</Text>
+      <View style={[directedStyles.topBar, adaptiveTextLayout.stackHeader ? directedStyles.topBarStacked : null]}>
+        <Text
+          android_hyphenationFrequency="none"
+          lineBreakStrategyIOS="standard"
+          maxFontSizeMultiplier={brandHeadingProjection.maximumFontSizeMultiplier}
+          numberOfLines={1}
+          style={directedStyles.brand}
+          textBreakStrategy="balanced"
+        >
+          Soundscape
+        </Text>
         <Pressable
           accessibilityRole="button"
           onPress={() => openClassic("settings")}
@@ -1032,7 +1153,15 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
           <Text style={directedStyles.headerSettingsText}>Settings</Text>
         </Pressable>
       </View>
-      <ScrollView contentContainerStyle={[directedStyles.content, { paddingBottom: contentBottomPadding }]}>{content}</ScrollView>
+      <ScrollView
+        contentContainerStyle={[
+          directedStyles.content,
+          adaptiveTextLayout.mode === "accessibility" ? directedStyles.contentAccessibility : null,
+          { paddingBottom: contentBottomPadding },
+        ]}
+      >
+        {content}
+      </ScrollView>
       {showMini && nativeState && overlayLayout.safeAreaBackgroundExtension > 0 ? (
         <View
           pointerEvents="none"
@@ -1046,36 +1175,92 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
         />
       ) : null}
       {showMini && nativeState ? (
-        <View
-          onLayout={({ nativeEvent }) => setMiniPlayerMeasuredHeight(nativeEvent.layout.height)}
-          style={[directedStyles.miniPlayerPlacement, { bottom: miniPlayerBottom }]}
+        <ScrollView
+          accessibilityLabel="Directed compact Player controls"
+          nestedScrollEnabled
+          onContentSizeChange={(_width, height) => {
+            if (adaptiveTextLayout.mode === "accessibility") {
+              setMiniPlayerMeasurement({ layoutKey: adaptiveTextLayout.layoutKey, height });
+            }
+          }}
+          onLayout={({ nativeEvent }) => {
+            if (adaptiveTextLayout.mode === "normal") {
+              setMiniPlayerMeasurement({
+                layoutKey: adaptiveTextLayout.layoutKey,
+                height: nativeEvent.layout.height,
+              });
+            }
+          }}
+          scrollEnabled={adaptiveDockViewport.miniPlayerScrollEnabled}
+          showsVerticalScrollIndicator={adaptiveDockViewport.miniPlayerScrollEnabled}
+          style={[
+            directedStyles.miniPlayerPlacement,
+            { bottom: miniPlayerBottom },
+            adaptiveTextLayout.mode === "accessibility"
+              ? { maxHeight: adaptiveDockViewport.miniPlayerViewportHeight }
+              : null,
+          ]}
         >
           <DirectedMiniPlayerV1 state={nativeState} compact={compact} onOpen={() => setScreen("player")} onTransport={() => void handleTransport()} />
-        </View>
+        </ScrollView>
       ) : null}
       {showRootChrome ? (
         <SafeAreaView
           edges={["bottom", "left", "right"]}
           style={directedStyles.bottomNavSafeArea}
         >
-          <View
+          <ScrollView
             accessibilityLabel="Directed session navigation"
             accessibilityRole="tablist"
-            onLayout={({ nativeEvent }) => setBottomNavigationContentHeight(nativeEvent.layout.height)}
-            style={directedStyles.bottomNav}
+            contentContainerStyle={[
+              directedStyles.bottomNav,
+              adaptiveTextLayout.navigationMode === "stacked" ? directedStyles.bottomNavStacked : null,
+            ]}
+            nestedScrollEnabled
+            onContentSizeChange={(_width, height) => {
+              if (adaptiveTextLayout.mode === "accessibility") {
+                setBottomNavigationMeasurement({ layoutKey: adaptiveTextLayout.layoutKey, height });
+              }
+            }}
+            onLayout={({ nativeEvent }) => {
+              if (adaptiveTextLayout.mode === "normal") {
+                setBottomNavigationMeasurement({
+                  layoutKey: adaptiveTextLayout.layoutKey,
+                  height: nativeEvent.layout.height,
+                });
+              }
+            }}
+            scrollEnabled={adaptiveDockViewport.navigationScrollEnabled}
+            showsVerticalScrollIndicator={adaptiveDockViewport.navigationScrollEnabled}
+            style={adaptiveTextLayout.mode === "accessibility"
+              ? { maxHeight: adaptiveDockViewport.navigationViewportHeight }
+              : undefined}
           >
             {directedNavigationV1.map((item) => (
               <Pressable
+                accessibilityLabel={item.label}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: tab === item.key }}
                 key={item.key}
                 onPress={() => setTab(item.key)}
-                style={[directedStyles.navTab, tab === item.key ? directedStyles.navTabSelected : null]}
+                style={[
+                  directedStyles.navTab,
+                  adaptiveTextLayout.navigationMode === "stacked" ? directedStyles.navTabStacked : null,
+                  tab === item.key ? directedStyles.navTabSelected : null,
+                ]}
               >
-                <Text style={[directedStyles.navText, tab === item.key ? directedStyles.navTextSelected : null]}>{item.label}</Text>
+                <Text
+                  android_hyphenationFrequency="none"
+                  lineBreakStrategyIOS="standard"
+                  numberOfLines={constrainedEssentialTextPolicy.numberOfLines}
+                  style={[directedStyles.navText, tab === item.key ? directedStyles.navTextSelected : null]}
+                  textBreakStrategy="balanced"
+                >
+                  {item.label}
+                </Text>
               </Pressable>
             ))}
-          </View>
+          </ScrollView>
         </SafeAreaView>
       ) : null}
     </SafeAreaView>
@@ -1085,10 +1270,12 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
 const directedStyles = StyleSheet.create({
   safeAreaShell: { flex: 1, backgroundColor: classicVisualThemeV1.background },
   topBar: { minHeight: classicComponentTokensV1.controlMinHeight, paddingHorizontal: classicComponentTokensV1.cardPadding, paddingVertical: classicComponentTokensV1.spacing.xs, marginHorizontal: classicComponentTokensV1.sectionPadding, marginTop: classicComponentTokensV1.spacing.xs, backgroundColor: classicVisualThemeV1.elevated, borderRadius: classicComponentTokensV1.radius.card, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: classicComponentTokensV1.spacing.sm },
+  topBarStacked: { alignItems: "stretch", flexDirection: "column" },
   brand: { color: classicVisualThemeV1.text, fontSize: 28, lineHeight: 34, fontWeight: "900", flexShrink: 1 },
   headerSettings: { minHeight: classicComponentTokensV1.controlMinHeight, minWidth: classicComponentTokensV1.controlMinHeight, paddingHorizontal: 12, paddingVertical: 6, borderRadius: classicComponentTokensV1.radius.chip, borderWidth: 1, borderColor: classicVisualThemeV1.accentDeep, backgroundColor: classicVisualThemeV1.elevated, alignItems: "center", justifyContent: "center" },
   headerSettingsText: { color: classicVisualThemeV1.accentSeaGlass, fontSize: 13, lineHeight: 18, fontWeight: "900" },
   content: { padding: classicComponentTokensV1.sectionPadding, paddingBottom: 28, gap: classicComponentTokensV1.spacing.md },
+  contentAccessibility: { paddingHorizontal: 10 },
   center: { minHeight: 280, alignItems: "center", justifyContent: "center", gap: 12 },
   title: { color: classicVisualThemeV1.text, fontSize: 28, lineHeight: 34, fontWeight: "800", flexShrink: 1 },
   eyebrow: { color: classicVisualThemeV1.accentMist, fontSize: 12, lineHeight: 17, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.4, marginTop: 12 },
@@ -1116,6 +1303,7 @@ const directedStyles = StyleSheet.create({
   sessionArtworkFeatured: { width: "100%" },
   sessionArtworkCompact: { width: "100%" },
   sessionCardHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
+  sessionCardHeaderCompact: { alignItems: "stretch", flexDirection: "column" },
   sessionCardTitleBlock: { flex: 1, minWidth: 0, gap: 2 },
   sessionCardCopy: { flex: 1, minWidth: 0, gap: 5 },
   chevron: { color: classicVisualThemeV1.accentSeaGlass, width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: classicVisualThemeV1.accentDeep, fontSize: 31, lineHeight: 40, fontWeight: "700", textAlign: "center", overflow: "hidden" },
@@ -1172,6 +1360,7 @@ const directedStyles = StyleSheet.create({
   playerCard: { backgroundColor: classicVisualThemeV1.elevated, borderRadius: classicComponentTokensV1.radius.card, borderWidth: 1, borderColor: classicVisualThemeV1.borderStrong, padding: 12, marginTop: 12 },
   phaseTitle: { color: classicVisualThemeV1.text, fontSize: 24, lineHeight: 30, fontWeight: "800" },
   progressCopyRow: { flexDirection: "row", justifyContent: "space-between", gap: 12, marginTop: 8 },
+  progressCopyRowCompact: { alignItems: "flex-start", flexDirection: "column" },
   progressCopy: { color: classicVisualPaletteV1.darkEarth, fontSize: 16, lineHeight: 23, fontWeight: "700" },
   progressReadOnlyCopy: { color: classicVisualThemeV1.textMuted, fontSize: 13, lineHeight: 18, fontWeight: "700" },
   nextCopy: { color: classicVisualThemeV1.accentMist, fontSize: 17, lineHeight: 24, fontWeight: "800" },
@@ -1211,7 +1400,9 @@ const directedStyles = StyleSheet.create({
   pendingText: { color: classicVisualPaletteV1.sageMist, fontSize: 12, lineHeight: 16, fontWeight: "800" },
   bottomNavSafeArea: { position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: classicVisualThemeV1.background, borderTopWidth: 1, borderColor: classicVisualThemeV1.border },
   bottomNav: { minHeight: 58, paddingHorizontal: 10, paddingBottom: 6, paddingTop: 6, backgroundColor: classicVisualThemeV1.background, flexDirection: "row", gap: 6 },
+  bottomNavStacked: { alignItems: "stretch", flexDirection: "column" },
   navTab: { flex: 1, minHeight: classicComponentTokensV1.controlMinHeight, minWidth: classicComponentTokensV1.controlMinHeight, borderRadius: classicComponentTokensV1.radius.chip, borderWidth: 1, borderColor: classicVisualThemeV1.border, backgroundColor: classicVisualThemeV1.elevated, alignItems: "center", justifyContent: "center", paddingHorizontal: 4, paddingVertical: 6 },
+  navTabStacked: { alignSelf: "stretch", flex: 0, width: "100%" },
   navTabSelected: { backgroundColor: classicVisualThemeV1.accentDeep, borderColor: classicVisualThemeV1.accentSeaGlass },
   navText: { color: classicVisualThemeV1.textMuted, fontSize: 12, lineHeight: 17, fontWeight: "900", flexShrink: 1, textAlign: "center" },
   navTextSelected: { color: classicVisualThemeV1.text, fontWeight: "900" },

@@ -75,6 +75,16 @@ import {
   type SavedDestructiveCommandTokenV1,
   type SavedDestructiveContextV1,
 } from "./src/navigation/savedDestructiveNavigationAuthorityV1";
+import {
+  resolveAdaptiveBrandHeadingProjectionV1,
+  resolveAdaptiveDockHeightV1,
+  resolveAdaptiveMiniPlayerProvisionalHeightV1,
+  resolveAdaptiveNavigationHeightV1,
+  resolveAdaptivePersistentDockViewportV1,
+  resolveAdaptiveTextLayoutV1,
+  resolveAdaptiveTextLinePolicyV1,
+  type AdaptiveDockMeasurementV1,
+} from "./src/ui/adaptiveTextLayoutV1";
 
 const mobileCatalogSounds: MobileCatalogSound[] = [
   ...baselineMobileCatalogSounds,
@@ -374,11 +384,11 @@ const playbackTraceDisplayRefreshMillis = 250;
 const playbackTraceEventLoopGapThresholdMillis = 250;
 const sessionReplacementFadeMillis = 120;
 const appIterationInfo = {
-  label: "Alpha 0.16.4",
-  displayLabel: "Alpha 0.16.4 — Saved Sessions Navigation Safety Correction",
-  currentUpdate: "Alpha 0.16.4 — Saved Sessions Navigation Safety Correction",
-  codename: "saved-sessions-navigation-safety-correction-v1",
-  fullInternalLabel: "Alpha 0.16.4+saved-sessions-navigation-safety-correction-v1",
+  label: "Alpha 0.16.5",
+  displayLabel: "Alpha 0.16.5 — Increased-Text Accessibility Correction",
+  currentUpdate: "Alpha 0.16.5 — Increased-Text Accessibility Correction",
+  codename: "increased-text-accessibility-correction-v1",
+  fullInternalLabel: "Alpha 0.16.5+increased-text-accessibility-correction-v1",
   acceptedNativeBaseline: {
     label: "Alpha 0.11.7",
     displayLabel: "Alpha 0.11.7 — Single Preview Selection-Ready Fix",
@@ -1168,7 +1178,19 @@ function SoundscapeApp({
   retainedMiniPlayerLayout = null,
   onClassicMiniPlayerLayoutChange,
 }: SoundscapeAppProps = {}) {
-  const { fontScale, width: screenWidth } = useWindowDimensions();
+  const { fontScale, height: screenHeight, width: screenWidth } = useWindowDimensions();
+  const adaptiveTextLayout = resolveAdaptiveTextLayoutV1({ width: screenWidth, fontScale });
+  const brandHeadingProjection = resolveAdaptiveBrandHeadingProjectionV1({
+    width: screenWidth,
+    fontScale,
+    baseFontSize: 22,
+    horizontalInsets: 2 * (mobileUxTokens.sectionPadding + mobileUxTokens.cardPadding),
+  });
+  const constrainedEssentialTextPolicy = resolveAdaptiveTextLinePolicyV1({
+    fontScale,
+    constrained: true,
+    essential: true,
+  });
   const insets = useSafeAreaInsets();
   const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
   useEffect(() => {
@@ -1192,15 +1214,63 @@ function SoundscapeApp({
   const useCompactThreeColumnFallback = screenWidth < mobileUxBreakpoints.compactThreeColumnWidth || fontScale > mobileUxBreakpoints.largeTextScale;
   const presetLayerChoiceLayout = getPresetLayerChoiceLayout(screenWidth, fontScale);
   const useStackedSavedSessionManageActions =
-    screenWidth < mobileUxBreakpoints.savedManageStackWidth || fontScale > mobileUxBreakpoints.largeTextScale;
-  const useStackedClassicHeader = screenWidth <= 360 || fontScale >= 1.35;
-  const [bottomNavigationContentHeight, setBottomNavigationContentHeight] = useState<number>(mobileUxTokens.bottomNavigationContentHeight);
-  const [miniPlayerHeight, setMiniPlayerHeight] = useState<number>(mobileUxTokens.miniPlayerEstimatedHeight);
+    adaptiveTextLayout.stackActionRows || screenWidth < mobileUxBreakpoints.savedManageStackWidth;
+  const useStackedClassicHeader = adaptiveTextLayout.stackHeader;
+  const [bottomNavigationMeasurement, setBottomNavigationMeasurement] = useState<AdaptiveDockMeasurementV1>({
+    layoutKey: "",
+    height: 0,
+  });
+  const [miniPlayerMeasurement, setMiniPlayerMeasurement] = useState<AdaptiveDockMeasurementV1>({
+    layoutKey: "",
+    height: 0,
+  });
+  const provisionalBottomNavigationHeight = resolveAdaptiveNavigationHeightV1({
+    itemCount: mobileSectionNavOptions.length,
+    fontScale,
+    normalHeight: mobileUxTokens.bottomNavigationContentHeight,
+    minimumTouchTarget: mobileUxTokens.controlMinHeight,
+  });
+  const provisionalMiniPlayerHeight = resolveAdaptiveMiniPlayerProvisionalHeightV1({
+    actionCount: 3,
+    fontScale,
+    normalHeight: mobileUxTokens.miniPlayerEstimatedHeight,
+  });
+  const bottomNavigationContentHeight = resolveAdaptiveDockHeightV1({
+    layoutKey: adaptiveTextLayout.layoutKey,
+    measurement: bottomNavigationMeasurement,
+    provisionalHeight: provisionalBottomNavigationHeight,
+  }).height;
+  const miniPlayerHeight = resolveAdaptiveDockHeightV1({
+    layoutKey: adaptiveTextLayout.layoutKey,
+    measurement: miniPlayerMeasurement,
+    provisionalHeight: provisionalMiniPlayerHeight,
+  }).height;
+  const adaptiveDockViewport = resolveAdaptivePersistentDockViewportV1({
+    viewportHeight: screenHeight,
+    fontScale,
+    safeAreaBottom: insets.bottom,
+    navigationHeight: bottomNavigationContentHeight,
+    miniPlayerHeight,
+  });
   const handleBottomNavigationLayout = (event: LayoutChangeEvent) => {
-    setBottomNavigationContentHeight(event.nativeEvent.layout.height);
+    if (adaptiveTextLayout.mode === "normal") {
+      setBottomNavigationMeasurement({ layoutKey: adaptiveTextLayout.layoutKey, height: event.nativeEvent.layout.height });
+    }
   };
   const handleMiniPlayerLayout = (event: LayoutChangeEvent) => {
-    setMiniPlayerHeight(event.nativeEvent.layout.height);
+    if (adaptiveTextLayout.mode === "normal") {
+      setMiniPlayerMeasurement({ layoutKey: adaptiveTextLayout.layoutKey, height: event.nativeEvent.layout.height });
+    }
+  };
+  const handleBottomNavigationContentSizeChange = (_width: number, height: number) => {
+    if (adaptiveTextLayout.mode === "accessibility") {
+      setBottomNavigationMeasurement({ layoutKey: adaptiveTextLayout.layoutKey, height });
+    }
+  };
+  const handleMiniPlayerContentSizeChange = (_width: number, height: number) => {
+    if (adaptiveTextLayout.mode === "accessibility") {
+      setMiniPlayerMeasurement({ layoutKey: adaptiveTextLayout.layoutKey, height });
+    }
   };
   const [sound, setSound] = useState<ManagedAudioResource | null>(null);
   const soundRef = useRef<ManagedAudioResource | null>(null);
@@ -2477,7 +2547,7 @@ function SoundscapeApp({
   });
   const classicSurfaceLayout = resolveClassicMiniPlayerOverlayLayoutV1({
     miniPlayerPresent: showRetainedClassicMiniPlayer,
-    miniPlayerHeight,
+    miniPlayerHeight: adaptiveDockViewport.miniPlayerViewportHeight,
     bottomNavigationVisible: surfaceVisible,
     bottomNavigationContentHeight,
     safeAreaBottom: insets.bottom,
@@ -2488,7 +2558,7 @@ function SoundscapeApp({
     ? classicSurfaceLayout
     : retainedMiniPlayerLayout ?? resolveClassicMiniPlayerOverlayLayoutV1({
         miniPlayerPresent: showRetainedClassicMiniPlayer,
-        miniPlayerHeight,
+        miniPlayerHeight: adaptiveDockViewport.miniPlayerViewportHeight,
         bottomNavigationVisible: false,
         bottomNavigationContentHeight,
         safeAreaBottom: insets.bottom,
@@ -2500,9 +2570,9 @@ function SoundscapeApp({
   useEffect(() => {
     onClassicMiniPlayerLayoutChange?.({
       present: showRetainedClassicMiniPlayer,
-      height: showRetainedClassicMiniPlayer ? miniPlayerHeight : 0,
+      height: showRetainedClassicMiniPlayer ? adaptiveDockViewport.miniPlayerViewportHeight : 0,
     });
-  }, [miniPlayerHeight, onClassicMiniPlayerLayoutChange, showRetainedClassicMiniPlayer]);
+  }, [adaptiveDockViewport.miniPlayerViewportHeight, onClassicMiniPlayerLayoutChange, showRetainedClassicMiniPlayer]);
   const loopHelperLabel = currentSession
     ? timerIsCounting
       ? "Timer overrides loop."
@@ -8205,13 +8275,14 @@ function SoundscapeApp({
       <FlatList
         ref={scrollViewRef}
         data={browseSectionIsActive ? browseListItems : []}
+        extraData={adaptiveTextLayout.layoutKey}
         keyExtractor={getBrowseListItemKey}
         renderItem={renderBrowseListItem}
         initialNumToRender={10}
         maxToRenderPerBatch={10}
         updateCellsBatchingPeriod={40}
         windowSize={7}
-        removeClippedSubviews={Platform.OS === "android"}
+        removeClippedSubviews={Platform.OS === "android" && adaptiveTextLayout.mode === "normal"}
         style={surfaceVisible ? undefined : styles.classicNavigationOwnedViewHidden}
         contentContainerStyle={[
           styles.container,
@@ -8227,7 +8298,16 @@ function SoundscapeApp({
         ) : null}
         <View style={[styles.compactAppHeader, useStackedClassicHeader ? styles.classicHeaderStacked : null]}>
           <View style={styles.topHeaderTitleBlock}>
-            <Text numberOfLines={1} style={styles.title}>Soundscape</Text>
+            <Text
+              android_hyphenationFrequency="none"
+              lineBreakStrategyIOS="standard"
+              maxFontSizeMultiplier={brandHeadingProjection.maximumFontSizeMultiplier}
+              numberOfLines={1}
+              style={styles.title}
+              textBreakStrategy="balanced"
+            >
+              Soundscape
+            </Text>
           </View>
           <Pressable
             accessibilityLabel={settingsOpen ? "Close settings" : "Settings"}
@@ -8268,7 +8348,13 @@ function SoundscapeApp({
             visible
           >
             <View style={styles.savedSessionModalBackdrop}>
-              <View accessibilityViewIsModal style={styles.savedSessionDialog}>
+              <ScrollView
+                accessibilityViewIsModal
+                bounces={false}
+                contentContainerStyle={styles.savedSessionDialogContent}
+                keyboardShouldPersistTaps="handled"
+                style={styles.savedSessionDialogScroll}
+              >
             <Text style={styles.localLibraryEyebrow}>
               {savedSessionDialog.mode === "rename"
                 ? "Rename session"
@@ -8310,17 +8396,24 @@ function SoundscapeApp({
               />
               <ProofButton label="Cancel" onPress={() => setSavedSessionDialog(null)} secondary compact />
             </View>
-              </View>
+              </ScrollView>
             </View>
           </Modal>
         ) : null}
 
         {settingsOpen ? (
           <View style={styles.settingsPanel}>
-            <View style={styles.settingsHeaderRow}>
+            <View style={[styles.settingsHeaderRow, adaptiveTextLayout.stackHeader ? styles.settingsHeaderStacked : null]}>
               <View style={styles.settingsHeaderTextBlock}>
                 <Text style={styles.settingsEyebrow}>Settings</Text>
-                <Text style={styles.settingsTitle}>Preferences</Text>
+                <Text
+                  android_hyphenationFrequency="none"
+                  lineBreakStrategyIOS="standard"
+                  style={styles.settingsTitle}
+                  textBreakStrategy="balanced"
+                >
+                  Preferences
+                </Text>
                 <Text style={styles.settingsBodyText}>Only this device.</Text>
               </View>
               <ProofButton label="Close settings" onPress={() => setSettingsOpen(false)} secondary compact />
@@ -8396,7 +8489,11 @@ function SoundscapeApp({
                     if (!catalogSound || !projection) return null;
                     return (
                       <View key={`offline-layer-${projection.layerId}`} style={styles.settingsActionRow}>
-                        <Text numberOfLines={3} accessibilityLiveRegion="polite" style={styles.settingsBodyText}>
+                        <Text
+                          accessibilityLiveRegion="polite"
+                          numberOfLines={adaptiveTextLayout.allowConstrainedSingleLine ? 3 : undefined}
+                          style={styles.settingsBodyText}
+                        >
                           {projection.layerName}: {projection.customerCopy}
                         </Text>
                         {projection.primaryAction ? (
@@ -9026,11 +9123,14 @@ function SoundscapeApp({
                   >
                     <View style={styles.builderDensityHeaderRow}>
                       <Text
-                        adjustsFontSizeToFit
-                        ellipsizeMode="clip"
-                        minimumFontScale={0.84}
-                        numberOfLines={1}
+                        adjustsFontSizeToFit={adaptiveTextLayout.allowConstrainedSingleLine}
+                        android_hyphenationFrequency="none"
+                        ellipsizeMode={adaptiveTextLayout.allowConstrainedSingleLine ? "clip" : undefined}
+                        lineBreakStrategyIOS="standard"
+                        minimumFontScale={adaptiveTextLayout.allowConstrainedSingleLine ? 0.84 : undefined}
+                        numberOfLines={constrainedEssentialTextPolicy.numberOfLines}
                         style={[styles.builderDensityText, selected ? styles.builderDensityTextSelected : null]}
+                        textBreakStrategy="balanced"
                       >
                         {option.label}
                       </Text>
@@ -9047,7 +9147,10 @@ function SoundscapeApp({
 
           {generatedBuilderPreset && generatedBuilderRecipe ? (
             <View style={styles.generatedRecipeCard}>
-              <View style={styles.generatedRecipeHeaderRow}>
+              <View style={[
+              styles.generatedRecipeHeaderRow,
+              adaptiveTextLayout.stackHeader ? styles.generatedRecipeHeaderRowStacked : null,
+            ]}>
                 <View style={styles.generatedRecipeTitleBlock}>
                   <Text style={styles.generatedRecipeEyebrow}>
                     {generatedBuilderRecipe.layers.length === 1 ? "Single sound ready" : "Recipe ready"}
@@ -9224,7 +9327,10 @@ function SoundscapeApp({
         <View style={styles.selectedCard}>
           {currentSession ? (
             <>
-              <View style={styles.currentSessionHeader}>
+              <View style={[
+                styles.currentSessionHeader,
+                adaptiveTextLayout.stackHeader ? styles.currentSessionHeaderStacked : null,
+              ]}>
                 <View style={styles.currentSessionTitleBlock}>
                   <Text style={styles.contractLabel}>Current session</Text>
                   <Text style={styles.selectedTitle}>{currentSession.title}</Text>
@@ -9244,7 +9350,10 @@ function SoundscapeApp({
                     </Text>
                   </View>
                 </View>
-                <View style={styles.playerTransportRow}>
+                <View style={[
+                  styles.playerTransportRow,
+                  adaptiveTextLayout.stackActionRows ? styles.playerTransportRowStacked : null,
+                ]}>
                   {currentSession.type === "single" ? (
                     <ProofButton
                       accessibilityLabel={`${singlePlayButtonLabel} ${selectedSound.title}`}
@@ -9322,7 +9431,11 @@ function SoundscapeApp({
                 ) : null}
                 {layeredSelectionPending || layeredPreviewStatus === "loading" ? <ActivityIndicator color={visualTheme.accentSeaGlass} /> : null}
                 {layeredPreviewError ? (
-                  <Text accessibilityLiveRegion="polite" numberOfLines={3} style={styles.miniErrorText}>
+                  <Text
+                    accessibilityLiveRegion="polite"
+                    numberOfLines={adaptiveTextLayout.allowConstrainedSingleLine ? 3 : undefined}
+                    style={styles.miniErrorText}
+                  >
                     {layeredPreviewError}
                   </Text>
                 ) : null}
@@ -9480,7 +9593,7 @@ function SoundscapeApp({
                                   {offlineProjection ? (
                                     <Text
                                       accessibilityLiveRegion="polite"
-                                      numberOfLines={3}
+                                      numberOfLines={adaptiveTextLayout.allowConstrainedSingleLine ? 3 : undefined}
                                       style={[styles.layeredPreviewLayerHint, styles.layerOfflineStatusText]}
                                     >
                                       {offlineProjection.customerCopy}
@@ -9617,7 +9730,15 @@ function SoundscapeApp({
                           }}
                           style={({ pressed }) => [styles.relatedSoundRow, pressed ? styles.pressedSoundRow : null]}
                         >
-                          <Text numberOfLines={1} style={styles.relatedSoundTitle}>{catalogSound.title}</Text>
+                          <Text
+                            android_hyphenationFrequency="none"
+                            lineBreakStrategyIOS="standard"
+                            numberOfLines={constrainedEssentialTextPolicy.numberOfLines}
+                            style={styles.relatedSoundTitle}
+                            textBreakStrategy="balanced"
+                          >
+                            {catalogSound.title}
+                          </Text>
                           <Text style={styles.relatedSoundMeta}>{catalogSound.lane}</Text>
                         </Pressable>
                       ))}
@@ -10137,7 +10258,7 @@ function SoundscapeApp({
           pointerEvents="none"
           style={[
             styles.transientNotificationOverlay,
-            { bottom: activeClassicMiniPlayerLayout.interactiveBottom + (currentSession ? miniPlayerHeight : 0) + 8 },
+            { bottom: activeClassicMiniPlayerLayout.interactiveBottom + (currentSession ? adaptiveDockViewport.miniPlayerViewportHeight : 0) + 8 },
           ]}
         >
           <Text
@@ -10165,9 +10286,20 @@ function SoundscapeApp({
       ) : null}
 
       {showRetainedClassicMiniPlayer && currentSession ? (
-        <View
+        <ScrollView
+          accessibilityLabel="Compact Player controls"
+          nestedScrollEnabled
+          onContentSizeChange={handleMiniPlayerContentSizeChange}
           onLayout={handleMiniPlayerLayout}
-          style={[styles.miniPlayer, { bottom: retainedClassicMiniPlayerBottom }]}
+          scrollEnabled={adaptiveDockViewport.miniPlayerScrollEnabled}
+          showsVerticalScrollIndicator={adaptiveDockViewport.miniPlayerScrollEnabled}
+          style={[
+            styles.miniPlayer,
+            { bottom: retainedClassicMiniPlayerBottom },
+            adaptiveTextLayout.mode === "accessibility"
+              ? { maxHeight: adaptiveDockViewport.miniPlayerViewportHeight }
+              : null,
+          ]}
         >
           <View style={styles.miniPlayerMainRow}>
             <View style={[styles.miniPlayerContent, useCompactMiniPlayerFallback ? styles.miniPlayerContentFallback : null]}>
@@ -10183,10 +10315,25 @@ function SoundscapeApp({
               ]}
             >
               <View style={styles.miniTitleBlock}>
-                <Text ellipsizeMode="tail" numberOfLines={1} style={styles.miniTitle}>
+                <Text
+                  android_hyphenationFrequency="none"
+                  ellipsizeMode={adaptiveTextLayout.allowConstrainedSingleLine ? "tail" : undefined}
+                  lineBreakStrategyIOS="standard"
+                  numberOfLines={constrainedEssentialTextPolicy.numberOfLines}
+                  style={styles.miniTitle}
+                  textBreakStrategy="balanced"
+                >
                   {getCurrentSessionTitle(currentSession, selectedSound)}
                 </Text>
-                <Text accessibilityLiveRegion="polite" ellipsizeMode="tail" numberOfLines={1} style={styles.miniMetadata}>
+                <Text
+                  accessibilityLiveRegion="polite"
+                  android_hyphenationFrequency="none"
+                  ellipsizeMode={adaptiveTextLayout.allowConstrainedSingleLine ? "tail" : undefined}
+                  lineBreakStrategyIOS="standard"
+                  numberOfLines={constrainedEssentialTextPolicy.numberOfLines}
+                  style={styles.miniMetadata}
+                  textBreakStrategy="balanced"
+                >
                   {miniStatusMetadata}
                 </Text>
               </View>
@@ -10198,6 +10345,7 @@ function SoundscapeApp({
               style={[
                 styles.miniControls,
                 useCompactMiniPlayerFallback ? styles.miniControlsFallback : styles.miniControlsInline,
+                adaptiveTextLayout.stackActionRows ? styles.miniControlsStacked : null,
               ]}
             >
               <ProofButton
@@ -10261,22 +10409,36 @@ function SoundscapeApp({
             </View>
           ) : null}
           {primaryPlaybackError ? (
-            <Text accessibilityLiveRegion="polite" numberOfLines={3} style={styles.miniErrorText}>
+            <Text
+              accessibilityLiveRegion="polite"
+              numberOfLines={adaptiveTextLayout.allowConstrainedSingleLine ? 3 : undefined}
+              style={styles.miniErrorText}
+            >
               {primaryPlaybackError}
             </Text>
           ) : null}
-        </View>
+        </ScrollView>
       ) : null}
 
       {surfaceVisible ? <SafeAreaView
         edges={["bottom", "left", "right"]}
         style={styles.persistentSectionNavSafeArea}
       >
-        <View
+        <ScrollView
           accessibilityLabel="Persistent section navigation"
+          contentContainerStyle={[
+            styles.persistentSectionNav,
+            adaptiveTextLayout.navigationMode === "stacked" ? styles.persistentSectionNavStacked : null,
+          ]}
+          nestedScrollEnabled
+          onContentSizeChange={handleBottomNavigationContentSizeChange}
           onLayout={handleBottomNavigationLayout}
-          style={styles.persistentSectionNav}
-        >
+          scrollEnabled={adaptiveDockViewport.navigationScrollEnabled}
+          showsVerticalScrollIndicator={adaptiveDockViewport.navigationScrollEnabled}
+          style={adaptiveTextLayout.mode === "accessibility"
+            ? { maxHeight: adaptiveDockViewport.navigationViewportHeight }
+            : undefined}
+          >
           {mobileSectionNavOptions.map((option) => {
             const selected = option.key === activeSectionKey;
             return (
@@ -10288,22 +10450,24 @@ function SoundscapeApp({
                 onPress={option.key === "player" ? handleOpenPlayer : () => handleSectionJump(option.key)}
                 style={({ pressed }) => [
                   styles.persistentSectionTab,
+                  adaptiveTextLayout.navigationMode === "stacked" ? styles.persistentSectionTabStacked : null,
                   selected ? styles.persistentSectionTabSelected : null,
                   pressed ? styles.pressedSoundRow : null,
                 ]}
               >
                 <Text
-                  style={[
-                    styles.persistentSectionTabText,
-                    selected ? styles.persistentSectionTabTextSelected : null,
-                  ]}
+                  android_hyphenationFrequency="none"
+                  lineBreakStrategyIOS="standard"
+                  numberOfLines={constrainedEssentialTextPolicy.numberOfLines}
+                  style={[styles.persistentSectionTabText, selected ? styles.persistentSectionTabTextSelected : null]}
+                  textBreakStrategy="balanced"
                 >
                   {option.label}
                 </Text>
               </Pressable>
             );
           })}
-        </View>
+        </ScrollView>
       </SafeAreaView> : null}
 
       {surfaceVisible ? <StatusBar style="light" /> : null}
@@ -10452,6 +10616,9 @@ function ProofButton({
   destructive,
   reduceMotionEnabled,
 }: ProofButtonProps) {
+  const { fontScale, width } = useWindowDimensions();
+  const adaptiveTextLayout = resolveAdaptiveTextLayoutV1({ width, fontScale });
+  const constrainsLabel = miniPlayerAction || fixedTransportAction || balancedAction;
   return (
     <Pressable
       accessibilityLabel={accessibilityLabel}
@@ -10467,7 +10634,8 @@ function ProofButton({
         styles.button,
         compact ? styles.compactButton : null,
         miniPlayerAction ? styles.miniPlayerAction : null,
-        fixedTransportAction ? styles.fixedTransportAction : null,
+        miniPlayerAction && !adaptiveTextLayout.allowConstrainedSingleLine ? styles.miniPlayerActionStacked : null,
+        fixedTransportAction && adaptiveTextLayout.allowConstrainedSingleLine ? styles.fixedTransportAction : null,
         balancedAction ? styles.balancedActionButton : null,
         fullWidth ? styles.fullWidthButton : null,
         secondary ? styles.secondaryButton : null,
@@ -10478,9 +10646,13 @@ function ProofButton({
       ]}
     >
       <Text
-        adjustsFontSizeToFit={miniPlayerAction || balancedAction}
-        minimumFontScale={miniPlayerAction ? 0.72 : balancedAction ? 0.82 : undefined}
-        numberOfLines={miniPlayerAction || fixedTransportAction || balancedAction ? 1 : undefined}
+        adjustsFontSizeToFit={Boolean(constrainsLabel && adaptiveTextLayout.allowConstrainedSingleLine)}
+        android_hyphenationFrequency="none"
+        lineBreakStrategyIOS="standard"
+        minimumFontScale={adaptiveTextLayout.allowConstrainedSingleLine
+          ? miniPlayerAction ? 0.72 : balancedAction ? 0.82 : undefined
+          : undefined}
+        numberOfLines={constrainsLabel && adaptiveTextLayout.allowConstrainedSingleLine ? 1 : undefined}
         style={[
           styles.buttonText,
           compact ? styles.compactButtonText : null,
@@ -10488,6 +10660,7 @@ function ProofButton({
           destructive ? styles.destructiveButtonText : null,
           unavailable ? styles.unavailableButtonText : null,
         ]}
+        textBreakStrategy="balanced"
       >
         {label}
       </Text>
@@ -10551,7 +10724,12 @@ function QuickFeedbackButton({ icon, selected, onPress, accessibilityLabel }: Qu
         pressed ? styles.pressedSoundRow : null,
       ]}
     >
-      <Text style={[styles.quickFeedbackIcon, selected ? styles.quickFeedbackIconSelected : null]}>
+      <Text
+        accessibilityElementsHidden
+        allowFontScaling={false}
+        importantForAccessibility="no"
+        style={[styles.quickFeedbackIcon, selected ? styles.quickFeedbackIconSelected : null]}
+      >
         {selected ? `✓${icon}` : icon}
       </Text>
     </Pressable>
@@ -11868,6 +12046,10 @@ const styles = StyleSheet.create({
     gap: 8,
     justifyContent: "space-between",
   },
+  settingsHeaderStacked: {
+    alignItems: "stretch",
+    flexDirection: "column",
+  },
   settingsHeaderTextBlock: {
     flex: 1,
     flexShrink: 1,
@@ -12018,7 +12200,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: visualTheme.text,
     fontSize: 15,
-    height: 48,
+    minHeight: 48,
     paddingHorizontal: 14,
     paddingVertical: 0,
   },
@@ -12320,6 +12502,20 @@ const styles = StyleSheet.create({
     maxWidth: 520,
     padding: 12,
     width: "100%",
+  },
+  savedSessionDialogScroll: {
+    alignSelf: "center",
+    backgroundColor: visualTheme.elevated,
+    borderColor: visualTheme.accentDeep,
+    borderRadius: 16,
+    borderWidth: 1,
+    maxHeight: "100%",
+    maxWidth: 520,
+    width: "100%",
+  },
+  savedSessionDialogContent: {
+    gap: 9,
+    padding: 12,
   },
   savedSessionInput: {
     backgroundColor: visualTheme.surface,
@@ -13044,6 +13240,10 @@ const styles = StyleSheet.create({
     gap: 8,
     justifyContent: "space-between",
   },
+  generatedRecipeHeaderRowStacked: {
+    alignItems: "stretch",
+    flexDirection: "column",
+  },
   generatedRecipeTitleBlock: {
     flex: 1,
     flexShrink: 1,
@@ -13056,8 +13256,8 @@ const styles = StyleSheet.create({
     borderColor: visualTheme.darkEarth,
     borderRadius: 999,
     borderWidth: 1,
-    height: 28,
     justifyContent: "center",
+    minHeight: 28,
     minWidth: 92,
     paddingHorizontal: 8,
   },
@@ -13305,6 +13505,10 @@ const styles = StyleSheet.create({
     gap: 8,
     justifyContent: "space-between",
   },
+  currentSessionHeaderStacked: {
+    alignItems: "stretch",
+    flexDirection: "column",
+  },
   currentSessionTitleBlock: {
     flex: 1,
     flexShrink: 1,
@@ -13380,6 +13584,10 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 8,
     width: "100%",
+  },
+  playerTransportRowStacked: {
+    alignItems: "stretch",
+    flexDirection: "column",
   },
   playerTransportStatus: {
     color: visualTheme.textOnDark,
@@ -14062,6 +14270,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
+  persistentSectionNavStacked: {
+    alignItems: "stretch",
+    flexDirection: "column",
+  },
   persistentSectionTab: {
     alignItems: "center",
     backgroundColor: visualTheme.elevated,
@@ -14073,6 +14285,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 4,
     paddingVertical: 6,
+  },
+  persistentSectionTabStacked: {
+    alignSelf: "stretch",
+    flex: 0,
+    width: "100%",
   },
   persistentSectionTabSelected: {
     backgroundColor: visualTheme.accentDeep,
@@ -14298,6 +14515,10 @@ const styles = StyleSheet.create({
   miniControlsFallback: {
     width: "100%",
   },
+  miniControlsStacked: {
+    alignItems: "stretch",
+    flexDirection: "column",
+  },
   button: {
     alignItems: "center",
     backgroundColor: visualTheme.accentDeep,
@@ -14318,6 +14539,11 @@ const styles = StyleSheet.create({
     minHeight: 44,
     minWidth: 0,
     paddingHorizontal: 4,
+  },
+  miniPlayerActionStacked: {
+    alignSelf: "stretch",
+    flex: 0,
+    width: "100%",
   },
   fixedTransportAction: {
     width: 92,

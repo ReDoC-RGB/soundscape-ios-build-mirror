@@ -1,15 +1,15 @@
 {
-  "canonicalPrivateCommit": "c5d61e009e21cd643bdb985d66edcae34c00596d",
+  "canonicalPrivateCommit": "1aff2c7bdbe8e8f156acbaac48f4933f4d5ef226",
   "exportedPaths": [
     {
       "path": ".github/workflows/ios-internal.yml",
-      "byteLength": 14157,
-      "sha256": "577d206a52c8c58c6749a148dba1741e6a9af4d029b977c71d41fa7019e8ff56"
+      "byteLength": 14145,
+      "sha256": "d41861d3b3230d4394bd001b4199cf07440d9c271729929c44eab484a7f32bc1"
     },
     {
       "path": "App.tsx",
-      "byteLength": 567438,
-      "sha256": "cbf4fc458b37740b95731306ab63b2f8f1be0a15ab2833c118832b4224c3a171"
+      "byteLength": 576742,
+      "sha256": "2ca3fde3a5f2031db183fcb2f723e890cfe6d963822631f88067ee8405f48d8a"
     },
     {
       "path": "README.md",
@@ -18,13 +18,13 @@
     },
     {
       "path": "app.config.js",
-      "byteLength": 1889,
-      "sha256": "9d937cdd894c6fb5875a889b4ca1af947ed2a8792c755f1646bc409a1e687d1a"
+      "byteLength": 1877,
+      "sha256": "812c3475ef82a43cbbffea0f043e3c702261160da3aa8abfce2c632a95782879"
     },
     {
       "path": "app.json",
       "byteLength": 1322,
-      "sha256": "540e33fbb141cec36a633529830a8130ce9d6740b134d278749b84d361a0d4d5"
+      "sha256": "0c8c0f1b6726b0fdb82b70d7f5dd8cd601bc14a5ad1c5920a142adea310ffe9a"
     },
     {
       "path": "assets/icon.png",
@@ -268,8 +268,8 @@
     },
     {
       "path": "src/directedSessions/DirectedSessionsExperienceV1.tsx",
-      "byteLength": 79167,
-      "sha256": "af0af056121830b723dfa295c40ad9b9fe949352c3aba7bfcdcc77286bd4bcf6"
+      "byteLength": 86450,
+      "sha256": "7900232ac83b9b9ff2a640cb0cef46b15fe6e088d45c99d79413b37051347469"
     },
     {
       "path": "src/directedSessions/directedContentEvidenceV1.ts",
@@ -495,6 +495,11 @@
       "path": "src/sessionReplacement.ts",
       "byteLength": 1915,
       "sha256": "4d0a1d6c3e27849d161f44d88644df87e78d2de70fb0a100183eab138327796e"
+    },
+    {
+      "path": "src/ui/adaptiveTextLayoutV1.ts",
+      "byteLength": 10790,
+      "sha256": "27c85a3646d23333d146f17cde5bc0000902acf9ee1125b23351ea4335902673"
     },
     {
       "path": "src/ui/classicMiniPlayerOverlayLayoutV1.ts",
