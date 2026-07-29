@@ -29,7 +29,7 @@ import {
   type DirectedSceneIdV1,
   type DirectedSteeringAxisV1,
 } from "./sceneScoresV1";
-import type { DirectedAvailabilityProjectionV1 } from "./eligibilityV1";
+import { projectDirectedActiveSessionAvailabilityV1, type DirectedAvailabilityProjectionV1 } from "./eligibilityV1";
 import {
   DIRECTED_FOREGROUND_PROJECTION_INTERVAL_MS,
   shouldRunDirectedForegroundProjectionV1,
@@ -80,6 +80,7 @@ export const directedNavigationV1: readonly Readonly<{ key: DirectedTabV1; label
 ];
 
 const initialAvailability = (sceneId: DirectedSceneIdV1): DirectedAvailabilityProjectionV1 => ({
+  sceneId,
   state: "checking",
   customerCopy: "Checking this session…",
   primaryLabel: "Checking…",
@@ -211,6 +212,7 @@ function DirectedProgressV1({ state, compact = false }: Readonly<{ state: Native
 function DirectedMiniPlayerV1(props: Readonly<{
   state: NativeDirectedSessionStateV1;
   compact: boolean;
+  disabled: boolean;
   onOpen: () => void;
   onTransport: () => void;
 }>) {
@@ -242,7 +244,7 @@ function DirectedMiniPlayerV1(props: Readonly<{
         {props.state.pendingSteering ? <Text style={directedStyles.pendingText}>● Change pending</Text> : null}
         <DirectedProgressV1 state={props.state} compact />
       </Pressable>
-      <DirectedButtonV1 label={pauseLabel} onPress={props.onTransport} secondary />
+      <DirectedButtonV1 label={pauseLabel} onPress={props.onTransport} secondary disabled={props.disabled} />
     </View>
   );
 }
@@ -463,10 +465,12 @@ function SessionCardV1(props: Readonly<{
   const featured = props.sceneId === "rain-desk-v1";
   const stateLabel = props.availability.state === "content-gated" || props.availability.state === "native-unavailable"
     ? "Not available"
-    : props.availability.offlineReady
-      ? "Available offline"
-      : props.availability.state === "downloading"
-        ? `Downloading ${props.availability.verifiedCount} of ${props.availability.totalCount}`
+    : props.availability.state === "active-session"
+      ? "Session active"
+      : props.availability.offlineReady
+        ? "Available offline"
+        : props.availability.state === "downloading"
+          ? `Downloading ${props.availability.verifiedCount} of ${props.availability.totalCount}`
         : props.availability.state === "package-corrupt"
           ? "Download needs attention"
           : props.availability.state === "checking"
@@ -484,7 +488,7 @@ function SessionCardV1(props: Readonly<{
       ]}
     >
       <Pressable
-        accessibilityHint="Opens session details without starting audio"
+        accessibilityHint={props.availability.state === "active-session" ? "Opens the active Directed Player" : "Opens session details without starting audio"}
         accessibilityLabel={`${score.title} session`}
         accessibilityRole="button"
         onPress={props.onOpen}
@@ -519,7 +523,7 @@ function SessionCardV1(props: Readonly<{
       </Pressable>
       <View style={directedStyles.sessionCardFooter}>
         <Text accessibilityLiveRegion="polite" style={directedStyles.downloadState}>{stateLabel}</Text>
-        {props.availability.offlineReady ? null : (
+        {props.availability.offlineReady || props.availability.state === "active-session" ? null : (
           <Pressable
             accessibilityLabel={`Download ${score.title} for offline listening`}
             accessibilityRole="button"
@@ -658,10 +662,10 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
     setAvailability(stable);
     setRemoteFreshness(Object.fromEntries(directedSceneScoresV1.map((score) => [
       score.sceneId,
-      score.productionEligible && stable[score.sceneId].startable && !stable[score.sceneId].offlineReady ? "checking" : "idle",
+      score.productionEligible && stable[score.sceneId].state !== "active-session" && stable[score.sceneId].startable && !stable[score.sceneId].offlineReady ? "checking" : "idle",
     ])) as Record<DirectedSceneIdV1, DirectedRemoteFreshnessUiV1>);
     for (const score of directedSceneScoresV1) {
-      if (!score.productionEligible || !stable[score.sceneId].startable || stable[score.sceneId].offlineReady) continue;
+      if (!score.productionEligible || stable[score.sceneId].state === "active-session" || !stable[score.sceneId].startable || stable[score.sceneId].offlineReady) continue;
       void readinessCoordinator.refreshRemote(score.assets[0].sourceUri).then(async (result) => {
         if (!result.current || !mountedRef.current || lifecycleEpochRef.current !== lifecycleEpoch || availabilityRequestIdRef.current !== requestId) return;
         setRemoteFreshness((current) => ({ ...current, [score.sceneId]: result.status }));
@@ -788,29 +792,50 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
     const lifecycleEpoch = lifecycleEpochRef.current;
     setBusy(true);
     try {
-      const next = await directedSessionServiceV1.dispatchDirectedSession(nativeState.transport === "playing" ? "pause" : "resume");
+      const next = await directedSessionServiceV1.dispatchDirectedSession(
+        nativeState.transport === "playing" ? "pause" : "resume",
+        undefined,
+        nativeState,
+      );
       if (canSettleUi(lifecycleEpoch, next)) setNativeState(next);
+    } catch (error) {
+      if (canSettleUi(lifecycleEpoch)) {
+        setMessage(error instanceof Error && error.message === "DIRECTED_RENDERED_OWNER_STALE"
+          ? "The Player changed. Its current controls were left unchanged."
+          : "That playback control couldn’t be completed. Try again.");
+      }
     } finally {
       if (canSettleUi(lifecycleEpoch)) setBusy(false);
     }
   };
 
-  const endSession = () => Alert.alert("End this session?", undefined, [
+  const endSession = () => {
+    if (!nativeState) return;
+    const expectedOwner = nativeState;
+    Alert.alert("End this session?", undefined, [
     { text: "Keep listening", style: "cancel" },
     { text: "End session", style: "destructive", onPress: () => {
       const lifecycleEpoch = lifecycleEpochRef.current;
       setBusy(true);
-      void directedSessionServiceV1.endDirectedSession().then(() => {
+      void directedSessionServiceV1.endDirectedSession(expectedOwner).then((ended) => {
         if (!canSettleUi(lifecycleEpoch)) return;
+        if (ended.sessionId !== expectedOwner.sessionId || ended.generationId !== expectedOwner.generationId) return;
+        const current = directedSessionServiceV1.currentDirectedSession();
+        if (current && (current.sessionId !== expectedOwner.sessionId || current.generationId !== expectedOwner.generationId)) {
+          setNativeState(current);
+          setScreen("player");
+          return;
+        }
         checkpointProjectionEpochRef.current.supersede();
         setCheckpoint(null);
         setNativeState(null);
         setScreen("ended");
       }).catch(() => {
-        if (canSettleUi(lifecycleEpoch)) setMessage("The session stopped, but continuation cleanup could not be verified. Try End session again.");
+        if (canSettleUi(lifecycleEpoch)) setMessage("The session couldn’t be ended because its playback ownership changed. The current session was left unchanged.");
       }).finally(() => { if (canSettleUi(lifecycleEpoch)) setBusy(false); });
     } },
-  ]);
+    ]);
+  };
 
   const steer = async (axis: DirectedSteeringAxisV1) => {
     if (!nativeState) return;
@@ -924,6 +949,22 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
     }
   };
 
+  const visibleAvailabilityFor = (sceneId: DirectedSceneIdV1): DirectedAvailabilityProjectionV1 => (
+    projectDirectedActiveSessionAvailabilityV1(availability[sceneId], nativeState)
+  );
+
+  const openScene = (sceneId: DirectedSceneIdV1) => {
+    const activeSceneSelected = Boolean(
+      nativeState
+      && nativeState.sceneId === sceneId
+      && ["playing", "paused", "interrupted"].includes(nativeState.transport),
+    );
+    setSelectedSceneId(sceneId);
+    setOutputProfile("headphones");
+    setMessage(null);
+    setScreen(activeSceneSelected ? "player" : "detail");
+  };
+
   const renderSessions = () => (
     <View>
       <Text accessibilityRole="header" style={directedStyles.title}>Directed Sessions</Text>
@@ -948,10 +989,10 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
         <SessionCardV1
           key={score.sceneId}
           sceneId={score.sceneId}
-          availability={availability[score.sceneId]}
+          availability={visibleAvailabilityFor(score.sceneId)}
           reduceMotionEnabled={reduceMotionEnabled}
           compact={compact}
-          onOpen={() => { setSelectedSceneId(score.sceneId); setOutputProfile("headphones"); setScreen("detail"); setMessage(null); }}
+          onOpen={() => openScene(score.sceneId)}
           onDownload={() => { void downloadPackageForScene(score.sceneId); }}
         />
       ))}
@@ -960,10 +1001,10 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
         <SessionCardV1
           key={score.sceneId}
           sceneId={score.sceneId}
-          availability={availability[score.sceneId]}
+          availability={visibleAvailabilityFor(score.sceneId)}
           reduceMotionEnabled={reduceMotionEnabled}
           compact={compact}
-          onOpen={() => { setSelectedSceneId(score.sceneId); setOutputProfile("headphones"); setScreen("detail"); setMessage(null); }}
+          onOpen={() => openScene(score.sceneId)}
           onDownload={() => { void downloadPackageForScene(score.sceneId); }}
         />
       ))}
@@ -1022,7 +1063,12 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
   );
 
   const renderDetail = () => {
-    const available = availability[selectedSceneId];
+    const available = visibleAvailabilityFor(selectedSceneId);
+    const activeSceneSelected = Boolean(
+      nativeState
+      && nativeState.sceneId === selectedSceneId
+      && ["playing", "paused", "interrupted"].includes(nativeState.transport),
+    );
     const freshness = remoteFreshness[selectedSceneId];
     const transportAvailability = available.offlineReady
       ? "Available offline"
@@ -1044,11 +1090,13 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
         : freshness === "timeout"
           ? "Ready to start. The connection could not be confirmed."
           : available.customerCopy;
-    const downloadActionLabel = available.state === "ready-to-stream"
-      ? "Download"
-      : available.state === "package-corrupt"
-        ? "Retry download"
-        : null;
+    const downloadActionLabel = activeSceneSelected
+      ? null
+      : available.state === "ready-to-stream"
+        ? "Download"
+        : available.state === "package-corrupt"
+          ? "Retry download"
+          : null;
     return (
       <View>
         <DirectedButtonV1 label="Back" onPress={() => setScreen("root")} secondary />
@@ -1080,7 +1128,11 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
             })}
             style={directedStyles.bottomActionCluster}
           >
-            <DirectedButtonV1 label={busy ? "Starting…" : selectedVariant.blocked || !available.startable ? "Start unavailable" : "Start session"} onPress={() => void start({ sceneId: selectedSceneId, outputProfile, hardAvoidanceIds: selectedAvoidances, allowRemote: true })} disabled={busy || selectedVariant.blocked || !available.startable} />
+            <DirectedButtonV1
+              label={activeSceneSelected ? "Open Player" : busy ? "Starting…" : selectedVariant.blocked || !available.startable ? "Start unavailable" : "Start session"}
+              onPress={() => activeSceneSelected ? setScreen("player") : void start({ sceneId: selectedSceneId, outputProfile, hardAvoidanceIds: selectedAvoidances, allowRemote: true })}
+              disabled={busy || (!activeSceneSelected && (selectedVariant.blocked || !available.startable))}
+            />
             {downloadActionLabel ? <DirectedButtonV1 label={downloadActionLabel} onPress={() => { void downloadPackageForScene(selectedSceneId); }} secondary /> : null}
             {available.state === "offline-missing" ? <DirectedButtonV1 label="Try again when online" onPress={() => void refreshAvailability()} secondary /> : null}
             {available.state === "downloading" ? <DirectedButtonV1 label="Cancel download" onPress={() => directedSessionServiceV1.cancelDirectedPackageDownload(selectedSceneId)} secondary /> : null}
@@ -1095,7 +1147,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
     if (capabilityReady === null) return <View style={directedStyles.center}><ActivityIndicator color={classicVisualThemeV1.accentDeep} /><Text style={directedStyles.body}>Checking this session…</Text></View>;
     if (!capabilityReady) return <View><Text accessibilityRole="alert" style={directedStyles.title}>Sessions are unavailable in this build.</Text><DirectedButtonV1 label="Open Library" onPress={() => setTab("library")} /><DirectedButtonV1 label="Try again" onPress={() => void refreshAvailability()} secondary /></View>;
     if (screen === "detail") return renderDetail();
-    if (screen === "player" && nativeState) return <DirectedPlayerV1 state={nativeState} reduceMotionEnabled={reduceMotionEnabled} compact={compact} sendingControl={sendingControl} backLabel={`Back to ${tab === "sessions" ? "Sessions" : tab === "library" ? "Library" : "Saved"}`} onBack={() => setScreen("root")} onTransport={() => void handleTransport()} onEnd={endSession} onSteer={(axis) => void steer(axis)} onTexture={() => void texture()} onUndo={() => void undo()} onProfile={(next) => void profile(next)} onAdjust={() => setScreen("adjust")} />;
+    if (screen === "player" && nativeState) return <DirectedPlayerV1 state={nativeState} reduceMotionEnabled={reduceMotionEnabled} compact={compact} sendingControl={sendingControl ?? (busy ? "transport" : null)} backLabel={`Back to ${tab === "sessions" ? "Sessions" : tab === "library" ? "Library" : "Saved"}`} onBack={() => setScreen("root")} onTransport={() => void handleTransport()} onEnd={endSession} onSteer={(axis) => void steer(axis)} onTexture={() => void texture()} onUndo={() => void undo()} onProfile={(next) => void profile(next)} onAdjust={() => setScreen("adjust")} />;
     if (screen === "adjust" && nativeState) return <DirectedAdjustV1 state={nativeState} busy={sendingControl !== null} onBack={() => setScreen("player")} onTrim={(layerId, trimDb) => void adjustLayer(layerId, { trimDb })} onToggle={(layerId, enabled) => void adjustLayer(layerId, { enabled })} />;
     if (screen === "completion" && nativeState) return <DirectedCompletionV1 state={nativeState} saved={completionSaved} busy={busy} message={message} onReplayPath={() => void replay("path")} onReplayOriginal={() => void replay("original")} onSave={() => { setBusy(true); void directedSessionServiceV1.saveCompletedPath(`${nativeState.title} path`).then((saved) => { setCompletionSaved(true); setMessage("Path saved on this device."); setSavedPaths((current) => [...current, saved]); }).catch(() => setMessage("This path wasn’t saved. Your completed session is unchanged.")).finally(() => setBusy(false)); }} onMore={() => { setScreen("root"); setTab("sessions"); }} onFeedback={(value) => void directedSessionServiceV1.saveFeedback(value).then(() => setMessage("Feedback saved on this device."))} />;
     if (screen === "ended") return <View style={directedStyles.endedCard}><Text accessibilityRole="header" style={directedStyles.title}>Session ended early</Text><Text style={directedStyles.body}>This was not saved as a completed path.</Text><DirectedButtonV1 label="Start over" onPress={() => setScreen("detail")} /><DirectedButtonV1 label="Back to Sessions" onPress={() => { setScreen("root"); setTab("sessions"); }} secondary /></View>;
@@ -1201,7 +1253,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
               : null,
           ]}
         >
-          <DirectedMiniPlayerV1 state={nativeState} compact={compact} onOpen={() => setScreen("player")} onTransport={() => void handleTransport()} />
+          <DirectedMiniPlayerV1 state={nativeState} compact={compact} disabled={busy} onOpen={() => setScreen("player")} onTransport={() => void handleTransport()} />
         </ScrollView>
       ) : null}
       {showRootChrome ? (

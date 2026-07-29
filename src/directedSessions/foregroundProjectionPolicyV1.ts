@@ -26,7 +26,7 @@ export function shouldRunDirectedForegroundProjectionV1(
   appState: DirectedProjectionAppStateV1,
   state: Pick<DirectedProjectionFenceV1, "transport"> | null,
 ): boolean {
-  return appState === "active" && state?.transport === "playing";
+  return appState === "active" && Boolean(state && ["playing", "paused", "interrupted"].includes(state.transport));
 }
 
 export function shouldAcceptDirectedProjectionV1(

@@ -41,9 +41,11 @@ export type DirectedAvailabilityStateV1 =
   | "offline-ready"
   | "offline-missing"
   | "downloading"
-  | "package-corrupt";
+  | "package-corrupt"
+  | "active-session";
 
 export type DirectedAvailabilityProjectionV1 = Readonly<{
+  sceneId: DirectedSceneIdV1;
   state: DirectedAvailabilityStateV1;
   customerCopy: string;
   primaryLabel: string;
@@ -187,6 +189,7 @@ export function projectDirectedAvailabilityV1(input: Readonly<{
   const byId = new Map(input.manifestItems.map((item) => [item.assetId, item]));
   const validation = validateDirectedPackageV1(packageDefinition, input.manifestItems);
   const base = {
+    sceneId: input.sceneId,
     verifiedCount: validation.verifiedAssetIds.length,
     totalCount: eligibleAssets.length,
     missingAssetIds: validation.missingAssetIds,
@@ -211,6 +214,31 @@ export function projectDirectedAvailabilityV1(input: Readonly<{
     return Object.freeze({ ...base, state: "offline-missing", customerCopy: "This session isn’t downloaded.", primaryLabel: "Unavailable offline", secondaryLabel: "Try again when online", startable: false, offlineReady: false, playingSourceMode: null });
   }
   return Object.freeze({ ...base, state: "ready-to-stream", customerCopy: "Streaming available.", primaryLabel: "Start session", secondaryLabel: "Download", startable: true, offlineReady: false, playingSourceMode: "remote" });
+}
+
+export function projectDirectedActiveSessionAvailabilityV1(
+  stable: DirectedAvailabilityProjectionV1,
+  active: Readonly<{
+    sceneId: string;
+    transport: string;
+    playingOffline: boolean;
+  }> | null,
+): DirectedAvailabilityProjectionV1 {
+  if (
+    !active
+    || active.sceneId !== stable.sceneId
+    || !["playing", "paused", "interrupted"].includes(active.transport)
+  ) return stable;
+  return Object.freeze({
+    ...stable,
+    state: "active-session",
+    customerCopy: "This session is active. Open Player to continue.",
+    primaryLabel: "Open Player",
+    secondaryLabel: null,
+    startable: true,
+    offlineReady: active.playingOffline || stable.offlineReady,
+    playingSourceMode: active.playingOffline ? "local" : "remote",
+  });
 }
 
 export function createDirectedDownloadInputsV1(sceneId: DirectedSceneIdV1, now: string) {

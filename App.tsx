@@ -384,11 +384,11 @@ const playbackTraceDisplayRefreshMillis = 250;
 const playbackTraceEventLoopGapThresholdMillis = 250;
 const sessionReplacementFadeMillis = 120;
 const appIterationInfo = {
-  label: "Alpha 0.16.5",
-  displayLabel: "Alpha 0.16.5 — Increased-Text Accessibility Correction",
-  currentUpdate: "Alpha 0.16.5 — Increased-Text Accessibility Correction",
-  codename: "increased-text-accessibility-correction-v1",
-  fullInternalLabel: "Alpha 0.16.5+increased-text-accessibility-correction-v1",
+  label: "Alpha 0.16.6",
+  displayLabel: "Alpha 0.16.6 — Directed-Session Lifecycle Correction",
+  currentUpdate: "Alpha 0.16.6 — Directed-Session Lifecycle Correction",
+  codename: "directed-session-lifecycle-correction-v1",
+  fullInternalLabel: "Alpha 0.16.6+directed-session-lifecycle-correction-v1",
   acceptedNativeBaseline: {
     label: "Alpha 0.11.7",
     displayLabel: "Alpha 0.11.7 — Single Preview Selection-Ready Fix",

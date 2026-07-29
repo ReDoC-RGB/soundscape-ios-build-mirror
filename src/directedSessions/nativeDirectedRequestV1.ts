@@ -27,6 +27,7 @@ export type CompileNativeDirectedSessionDefinitionInputV1 = Readonly<{
   initialAppliedSteering: NativeDirectedSessionDefinitionV1["initialAppliedSteering"];
   initialManualTrims: NativeDirectedSessionDefinitionV1["initialManualTrims"];
   restartAtPhaseIndex?: number;
+  requireAggregateOwnerAbsent?: boolean;
 }>;
 
 /**
@@ -56,6 +57,7 @@ export function compileNativeDirectedSessionDefinitionV1(
     expectedPhaseRevision: owner.expectedPhaseRevision,
     expectedPathRevision: owner.expectedPathRevision,
     idempotencyKey: owner.idempotencyKey,
+    ...(input.requireAggregateOwnerAbsent ? { requireAggregateOwnerAbsent: true } : {}),
     sessionType: "directed",
     contractVersion: 1,
     sceneId: variant.sceneId,

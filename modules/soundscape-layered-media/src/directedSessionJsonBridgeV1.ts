@@ -34,6 +34,7 @@ const ROOT_FIELDS_V1 = Object.freeze([
 ] as const);
 
 const ROOT_FIELD_SET_V1 = new Set<string>(ROOT_FIELDS_V1);
+const OPTIONAL_ROOT_FIELD_SET_V1 = new Set<string>(['requireAggregateOwnerAbsent']);
 
 export class DirectedJsonBridgePreNativeErrorV1 extends Error {
   readonly nativeCallAttempted = false;
@@ -104,7 +105,7 @@ export function serializeDirectedSessionDefinitionV1(definition: NativeDirectedS
   const prototype = Object.getPrototypeOf(definition);
   if (prototype !== Object.prototype && prototype !== null) reject('DIRECTED_JSON_ROOT_INVALID');
   const fields = Object.keys(definition as Record<string, unknown>);
-  if (fields.some((field) => !ROOT_FIELD_SET_V1.has(field))) reject('DIRECTED_JSON_FIELD_UNSUPPORTED');
+  if (fields.some((field) => !ROOT_FIELD_SET_V1.has(field) && !OPTIONAL_ROOT_FIELD_SET_V1.has(field))) reject('DIRECTED_JSON_FIELD_UNSUPPORTED');
   if (ROOT_FIELDS_V1.some((field) => !Object.prototype.hasOwnProperty.call(definition, field))) reject('DIRECTED_JSON_FIELD_MISSING');
 
   const serialized = (() => {

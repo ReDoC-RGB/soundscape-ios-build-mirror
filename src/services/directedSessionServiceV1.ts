@@ -28,6 +28,7 @@ import {
   resolveDirectedAssetSourcesV1,
   type DirectedAvailabilityProjectionV1,
 } from "../directedSessions/eligibilityV1";
+import { planDirectedSessionControlV1, type DirectedControlActionV1, type DirectedControlOwnerV1 } from "../directedSessions/directedSessionControlPolicyV1";
 import {
   DIRECTED_FEEDBACK_STORAGE_KEY_V1,
   DIRECTED_SAVED_PATHS_STORAGE_KEY_V1,
@@ -124,7 +125,18 @@ export type CreateDirectedSessionInputV1 = Readonly<{
   initialAppliedSteering?: DirectedAppliedSteeringV1;
   initialManualTrims?: Readonly<Record<string, Readonly<{ enabled: boolean; trimDb: -3 | 0 | 3 }>>>;
   restartAtPhaseIndex?: number;
+  initialTransport?: "playing" | "paused";
+  requireAggregateOwnerAbsent?: boolean;
 }>;
+
+const sameDirectedControlOwnerV1 = (
+  left: DirectedControlOwnerV1 | null,
+  right: DirectedControlOwnerV1 | null,
+): boolean => (
+  left === null || right === null
+    ? left === right
+    : left.sessionId === right.sessionId && left.generationId === right.generationId
+);
 
 const finiteNativeState = (state: NativeDirectedSessionStateV1 | null): state is NativeDirectedSessionStateV1 => Boolean(
   state
@@ -222,7 +234,10 @@ export class DirectedSessionServiceV1 {
   private lastPersistedNativeState: NativeDirectedSessionStateV1 | null = null;
   private terminalEndFence: DirectedTerminalEndFenceV1 | null = null;
   private lastExplicitlyEndedState: NativeDirectedSessionStateV1 | null = null;
-  private explicitEndInFlight: Promise<NativeDirectedSessionStateV1> | null = null;
+  private explicitEndInFlight: Readonly<{
+    owner: DirectedControlOwnerV1 | null;
+    promise: Promise<NativeDirectedSessionStateV1>;
+  }> | null = null;
   private terminalEndPersistenceVerified = true;
   private activationDiagnostic: DirectedActivationDiagnosticV1 | null = null;
   private activationAttemptEpoch = 0;
@@ -530,6 +545,7 @@ export class DirectedSessionServiceV1 {
       initialAppliedSteering: input.initialAppliedSteering ?? ORIGINAL_DIRECTED_STEERING_V1,
       initialManualTrims: input.initialManualTrims ?? {},
       restartAtPhaseIndex: input.restartAtPhaseIndex,
+      requireAggregateOwnerAbsent: input.requireAggregateOwnerAbsent,
     });
     let definitionIssued = false;
     try {
@@ -551,14 +567,15 @@ export class DirectedSessionServiceV1 {
         ["preparing"],
         { acknowledgement: "native-create-acknowledgement", owner: "native-owner-confirmation" },
       );
+      const initialTransport = input.initialTransport ?? "playing";
       const play: NativeDirectedTransportCommandV1 = {
         sessionId,
         generationId,
         operationId: created.lastAcceptedOperationId + 1,
         expectedPhaseRevision: created.phaseRevision,
         expectedPathRevision: created.pathRevision,
-        idempotencyKey: `${sessionId}:play:${created.lastAcceptedOperationId + 1}`,
-        type: "play",
+        idempotencyKey: `${sessionId}:${initialTransport}:${created.lastAcceptedOperationId + 1}`,
+        type: initialTransport === "paused" ? "pause" : "play",
       };
       let playingProjection: NativeDirectedSessionStateV1;
       this.traceActivationStage("JS_NATIVE_PLAY_CALL_BEGIN", "BEGIN");
@@ -572,7 +589,7 @@ export class DirectedSessionServiceV1 {
       const playing = await this.acceptAcknowledgedNativeState(
         playingProjection,
         play,
-        ["playing"],
+        [initialTransport],
         { acknowledgement: "native-play-acknowledgement", owner: "native-owner-confirmation" },
       );
       this.lastExplicitlyEndedState = null;
@@ -607,26 +624,45 @@ export class DirectedSessionServiceV1 {
     }
   }
 
-  async endDirectedSession(): Promise<NativeDirectedSessionStateV1> {
-    this.cancelPendingActivationV1();
-    if (this.explicitEndInFlight) return this.explicitEndInFlight;
+  async endDirectedSession(expectedOwner?: DirectedControlOwnerV1): Promise<NativeDirectedSessionStateV1> {
+    if (expectedOwner) this.requireCurrent(expectedOwner);
+    else this.cancelPendingActivationV1();
+
+    const targetOwner = expectedOwner ?? (this.current
+      ? Object.freeze({ sessionId: this.current.sessionId, generationId: this.current.generationId })
+      : null);
+    if (this.explicitEndInFlight) {
+      if (sameDirectedControlOwnerV1(this.explicitEndInFlight.owner, targetOwner)) return this.explicitEndInFlight.promise;
+      throw new Error("DIRECTED_END_OWNER_CONFLICT");
+    }
     if (!this.current && this.lastExplicitlyEndedState) {
+      if (
+        expectedOwner
+        && (this.lastExplicitlyEndedState.sessionId !== expectedOwner.sessionId || this.lastExplicitlyEndedState.generationId !== expectedOwner.generationId)
+      ) throw new Error("DIRECTED_RENDERED_OWNER_STALE");
       if (!await this.retireDirectedContinuationAuthorityV1(this.lastExplicitlyEndedState)) {
         throw new Error("DIRECTED_EXPLICIT_END_PERSISTENCE_UNVERIFIED");
       }
       return this.lastExplicitlyEndedState;
     }
-    const pending = this.performExplicitEnd();
-    this.explicitEndInFlight = pending;
+    const pending = (async () => {
+      if (expectedOwner) {
+        const planned = await this.prepareDirectedControlV1(expectedOwner, "end");
+        if (planned === "retire-missing") return this.retireMissingDirectedSessionV1(expectedOwner);
+      }
+      return this.performExplicitEnd(expectedOwner);
+    })();
+    const inFlight = Object.freeze({ owner: targetOwner, promise: pending });
+    this.explicitEndInFlight = inFlight;
     try {
       return await pending;
     } finally {
-      if (this.explicitEndInFlight === pending) this.explicitEndInFlight = null;
+      if (this.explicitEndInFlight === inFlight) this.explicitEndInFlight = null;
     }
   }
 
-  private async performExplicitEnd(): Promise<NativeDirectedSessionStateV1> {
-    const state = this.requireCurrent();
+  private async performExplicitEnd(expectedOwner?: DirectedControlOwnerV1): Promise<NativeDirectedSessionStateV1> {
+    const state = this.requireCurrent(expectedOwner);
     const operationId = state.lastAcceptedOperationId + 1;
     const command: NativeDirectedTransportCommandV1 = {
       sessionId: state.sessionId,
@@ -667,8 +703,19 @@ export class DirectedSessionServiceV1 {
     return stopped;
   }
 
-  async dispatchDirectedSession(type: "play" | "pause" | "resume" | "stop", endedReason?: NativeDirectedTransportCommandV1["endedReason"]): Promise<NativeDirectedSessionStateV1> {
-    const state = this.requireCurrent();
+  async dispatchDirectedSession(
+    type: "play" | "pause" | "resume" | "stop",
+    endedReason?: NativeDirectedTransportCommandV1["endedReason"],
+    expectedOwner?: DirectedControlOwnerV1,
+  ): Promise<NativeDirectedSessionStateV1> {
+    if (expectedOwner) {
+      const planned = await this.prepareDirectedControlV1(expectedOwner, type === "pause" ? "pause" : type === "stop" ? "end" : "resume");
+      if (planned === "recover-current" || planned === "recover-current-paused") {
+        return this.recoverCurrentDirectedSessionV1(expectedOwner, planned === "recover-current-paused");
+      }
+      if (planned === "retire-missing") return this.retireMissingDirectedSessionV1(expectedOwner);
+    }
+    const state = this.requireCurrent(expectedOwner);
     const operationId = state.lastAcceptedOperationId + 1;
     const command: NativeDirectedTransportCommandV1 = {
       sessionId: state.sessionId,
@@ -852,8 +899,112 @@ export class DirectedSessionServiceV1 {
     return this.acceptAcknowledgedNativeState(await NativeMedia.steerDirectedSession(command), command);
   }
 
-  private requireCurrent(): NativeDirectedSessionStateV1 {
+  private async inspectDirectedControlV1(expectedOwner: DirectedControlOwnerV1, action: DirectedControlActionV1): Promise<Readonly<{
+    kind: ReturnType<typeof planDirectedSessionControlV1>["kind"];
+    native: NativeDirectedSessionStateV1 | null;
+  }>> {
+    const [nativeCandidate, aggregate] = await Promise.all([
+      NativeMedia.getDirectedSessionState(),
+      NativeMedia.queryState(),
+    ]);
+    const native = finiteNativeState(nativeCandidate) ? nativeCandidate : null;
+    return Object.freeze({
+      kind: planDirectedSessionControlV1({
+        renderedOwner: expectedOwner,
+        nativeOwner: native ? Object.freeze({ sessionId: native.sessionId, generationId: native.generationId }) : null,
+        aggregateOwner: Object.freeze({
+          sessionType: aggregate.sessionType ?? null,
+          sessionId: aggregate.sessionId || null,
+          generationId: Number.isFinite(aggregate.generationId) ? aggregate.generationId : null,
+        }),
+        action,
+      }).kind,
+      native,
+    });
+  }
+
+  private async prepareDirectedControlV1(
+    expectedOwner: DirectedControlOwnerV1,
+    action: DirectedControlActionV1,
+  ): Promise<ReturnType<typeof planDirectedSessionControlV1>["kind"]> {
+    let inspected = await this.inspectDirectedControlV1(expectedOwner, action);
+    if (inspected.kind === "retry-query") inspected = await this.inspectDirectedControlV1(expectedOwner, action);
+    if (inspected.kind === "retry-query") throw new Error("DIRECTED_OWNER_QUERY_INCONSISTENT");
+    if (inspected.kind === "reject-stale") throw new Error("DIRECTED_RENDERED_OWNER_STALE");
+    if (inspected.kind === "dispatch-current") {
+      await this.acceptNativeState(inspected.native);
+      this.requireCurrent(expectedOwner);
+      return inspected.kind;
+    }
+    this.requireCurrent(expectedOwner);
+    return inspected.kind;
+  }
+
+  private async recoverCurrentDirectedSessionV1(
+    expectedOwner: DirectedControlOwnerV1,
+    paused: boolean,
+  ): Promise<NativeDirectedSessionStateV1> {
+    const state = this.requireCurrent(expectedOwner);
+    return this.createDirectedSession({
+      sceneId: state.sceneId as DirectedSceneIdV1,
+      outputProfile: state.outputProfile,
+      hardAvoidanceIds: state.hardAvoidanceIds,
+      allowRemote: true,
+      initialAppliedSteering: state.appliedSteering,
+      initialManualTrims: state.manualTrims,
+      restartAtPhaseIndex: state.phaseIndex,
+      initialTransport: paused ? "paused" : "playing",
+      requireAggregateOwnerAbsent: true,
+    });
+  }
+
+  private async retireMissingDirectedSessionV1(expectedOwner: DirectedControlOwnerV1): Promise<NativeDirectedSessionStateV1> {
+    const state = this.requireCurrent(expectedOwner);
+    const operationId = state.lastAcceptedOperationId + 1;
+    let observedAtMonotonicMs = state.observedAtMonotonicMs + 1;
+    try {
+      observedAtMonotonicMs = Math.max(observedAtMonotonicMs, NativeMedia.nativeElapsedRealtimeMs());
+    } catch {
+      // The owner is already proven absent; the monotonic successor only fences late projections.
+    }
+    const ended: NativeDirectedSessionStateV1 = Object.freeze({
+      ...state,
+      operationId,
+      lastAcceptedOperationId: operationId,
+      observedAtMonotonicMs,
+      transport: "stopped",
+      endedReason: "user-ended",
+      completionEligible: false,
+      pendingSteering: null,
+      lastAcknowledgement: Object.freeze({
+        status: "accepted",
+        operationId,
+        idempotencyKey: `${state.sessionId}:retire-missing:${operationId}`,
+        pathRevision: state.pathRevision,
+        code: null,
+        message: null,
+        safeCheckpointWithinMs: 0,
+      }),
+    });
+    await this.acceptNativeState(ended);
+    if (
+      this.lastExplicitlyEndedState?.sessionId !== ended.sessionId
+      || this.lastExplicitlyEndedState.generationId !== ended.generationId
+      || this.lastExplicitlyEndedState.operationId !== ended.operationId
+    ) throw new Error("DIRECTED_SYNTHETIC_END_NOT_ACCEPTED");
+    if (!this.terminalEndPersistenceVerified) throw new Error("DIRECTED_EXPLICIT_END_PERSISTENCE_UNVERIFIED");
+    if (this.current?.sessionId === ended.sessionId && this.current.generationId === ended.generationId) {
+      throw new Error("DIRECTED_EXPLICIT_END_LOCAL_AUTHORITY_RETAINED");
+    }
+    return ended;
+  }
+
+  private requireCurrent(expectedOwner?: DirectedControlOwnerV1): NativeDirectedSessionStateV1 {
     if (!finiteNativeState(this.current)) throw new Error("No directed session is active.");
+    if (
+      expectedOwner
+      && (this.current.sessionId !== expectedOwner.sessionId || this.current.generationId !== expectedOwner.generationId)
+    ) throw new Error("DIRECTED_RENDERED_OWNER_STALE");
     return this.current;
   }
 

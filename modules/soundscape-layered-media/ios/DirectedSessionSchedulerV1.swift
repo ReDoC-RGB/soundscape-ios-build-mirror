@@ -115,6 +115,7 @@ struct DirectedSchedulerDefinitionV1 {
   let initialManualTrims: [String: DirectedManualTrimV1]
   let hardAvoidanceIds: [String]
   let definitionIdempotencyKey: String
+  let requireAggregateOwnerAbsent: Bool
 
   init(payload: [String: Any]) throws {
     func number(_ key: String) throws -> NSNumber {
@@ -152,6 +153,7 @@ struct DirectedSchedulerDefinitionV1 {
     finalFadeStartMs = try number("finalFadeStartMs").doubleValue
     self.outputProfile = outputProfile
     self.definitionIdempotencyKey = definitionIdempotencyKey
+    requireAggregateOwnerAbsent = payload["requireAggregateOwnerAbsent"] as? Bool ?? false
     playingOffline = payload["playingOffline"] as? Bool ?? false
     maxLayerGain = try number("maxLayerGain").floatValue
     minimumOptionalGain = try number("minimumOptionalGain").floatValue

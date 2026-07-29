@@ -113,6 +113,7 @@ export type NativeDirectedSessionDefinitionV1 = NativeOwnership & {
   expectedPhaseRevision: number;
   expectedPathRevision: number;
   idempotencyKey: string;
+  requireAggregateOwnerAbsent?: boolean;
   sessionType: 'directed';
   contractVersion: 1;
   sceneId: string;

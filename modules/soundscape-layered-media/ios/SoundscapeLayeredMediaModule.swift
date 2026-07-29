@@ -363,10 +363,13 @@ private final class IOSLayeredMediaEngine {
 
   func createDirectedSession(_ payload: [String: Any]) throws -> [String: Any] {
     let next = try parseOwner(payload)
+    let definition = try DirectedSchedulerDefinitionV1(payload: payload)
+    if definition.requireAggregateOwnerAbsent && !owner.sessionId.isEmpty && !layers.isEmpty && !["idle", "stopped", "ended"].contains(currentPhase()) {
+      throw error(22, "AGGREGATE_OWNER_PRESENT")
+    }
     guard owner.sessionId.isEmpty || next.sessionId != owner.sessionId || next.generationId > owner.generationId else {
       throw error(1, "STALE_GENERATION")
     }
-    let definition = try DirectedSchedulerDefinitionV1(payload: payload)
     var preparedLayers: [String: LayerPlayback] = [:]
     for asset in definition.assets {
       guard
