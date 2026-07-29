@@ -35,6 +35,7 @@ export type DirectedManifestProjectionItemV1 = Readonly<{
 
 export type DirectedAvailabilityStateV1 =
   | "checking"
+  | "reconciling"
   | "native-unavailable"
   | "content-gated"
   | "ready-to-stream"

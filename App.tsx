@@ -384,11 +384,11 @@ const playbackTraceDisplayRefreshMillis = 250;
 const playbackTraceEventLoopGapThresholdMillis = 250;
 const sessionReplacementFadeMillis = 120;
 const appIterationInfo = {
-  label: "Alpha 0.16.6",
-  displayLabel: "Alpha 0.16.6 — Directed-Session Lifecycle Correction",
-  currentUpdate: "Alpha 0.16.6 — Directed-Session Lifecycle Correction",
-  codename: "directed-session-lifecycle-correction-v1",
-  fullInternalLabel: "Alpha 0.16.6+directed-session-lifecycle-correction-v1",
+  label: "Alpha 0.16.7",
+  displayLabel: "Alpha 0.16.7 — iOS Long-Background Availability Lifecycle Correction",
+  currentUpdate: "Alpha 0.16.7 — iOS Long-Background Availability Lifecycle Correction",
+  codename: "ios-long-background-availability-lifecycle-correction-v1",
+  fullInternalLabel: "Alpha 0.16.7+ios-long-background-availability-lifecycle-correction-v1",
   acceptedNativeBaseline: {
     label: "Alpha 0.11.7",
     displayLabel: "Alpha 0.11.7 — Single Preview Selection-Ready Fix",
@@ -6843,6 +6843,9 @@ function SoundscapeApp({
           fileExtension: descriptor.fileExtension,
         }, new Date().toISOString());
         publishOfflineManagerState();
+        if (localResolution.state === "unknown") {
+          return { state: "unusable", reason: localResolution.reason } as const;
+        }
         return localResolution;
       },
       getPreparedCacheUri: () => getPreparedColdStartUri(catalogSound.id),

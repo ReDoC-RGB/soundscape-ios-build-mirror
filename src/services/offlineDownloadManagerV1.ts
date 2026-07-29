@@ -76,6 +76,7 @@ export type OfflineDownloadDiagnosticV1 = Readonly<{
 export type VerifiedOfflineLocalResolutionV1 = Readonly<
   | { state: "local"; uri: string; item: OfflineManifestItemV1 }
   | { state: "not-downloaded"; item: null }
+  | { state: "unknown"; item: OfflineManifestItemV1; reason: string }
   | { state: "unusable" | "revoked"; item: OfflineManifestItemV1; reason: string }
 >;
 
@@ -285,46 +286,72 @@ export class OfflineDownloadManager {
       || item.sourceRevision !== input.sourceRevision
       || item.expectedBytes !== input.expectedBytes
       || item.checksumSha256.toLowerCase() !== input.checksumSha256.toLowerCase();
-    if (item.state === "failed/retryable") {
-      const reason = item.lastErrorTechnicalReason ?? item.lastError ?? "The retained offline source previously failed verification.";
-      return Object.freeze({ state: "unusable", item, reason });
-    }
-    if (item.state !== "available" || !item.localUri || item.verifiedBytes !== item.expectedBytes || manifestMismatch) {
+    const recoverableRetainedFailure = item.state === "failed/retryable"
+      && Boolean(item.localUri)
+      && item.verifiedBytes === item.expectedBytes
+      && !manifestMismatch;
+    if ((item.state !== "available" && !recoverableRetainedFailure) || !item.localUri || item.verifiedBytes !== item.expectedBytes || manifestMismatch) {
       const reason = manifestMismatch ? "The offline manifest generation, source revision, byte count, or checksum is stale." : `The offline manifest state ${item.state} is not a verified available source.`;
       const failed = this.fail(item, now, "integrity", reason);
       return Object.freeze({ state: "unusable", item: failed, reason });
     }
     const operationId = item.operationId;
-    const stat = await this.options.filePort.stat(item.localUri);
+    let normalizedUri: string;
+    try {
+      // Persisted absolute iOS container URLs are not durable across app upgrades/process
+      // recreation. Resolve the current Documents-owned URL before the first access probe.
+      normalizedUri = await this.options.filePort.normalizePlaybackUri(item.localUri, input.assetId, input.remoteUri);
+    } catch (error) {
+      const reason = `The retained offline file could not be accessed yet: ${error instanceof Error ? error.message : String(error)}`;
+      return Object.freeze({ state: "unknown", item, reason });
+    }
+    if (!this.isCurrentOperation(input.assetId, operationId)) return Object.freeze({ state: "unusable", item, reason: "A newer offline operation replaced this source migration." });
+    let stat: { exists: boolean; bytes: number };
+    try {
+      stat = await this.options.filePort.stat(normalizedUri);
+    } catch (error) {
+      const reason = `The retained offline file could not be inspected yet: ${error instanceof Error ? error.message : String(error)}`;
+      return Object.freeze({ state: "unknown", item, reason });
+    }
     if (!this.isCurrentOperation(input.assetId, operationId)) return Object.freeze({ state: "unusable", item, reason: "A newer offline operation replaced this verification." });
     if (!stat.exists || stat.bytes !== input.expectedBytes) {
       const reason = `The offline file is missing or has the wrong length (${stat.bytes}/${input.expectedBytes}).`;
       const failed = this.fail(item, now, "integrity", reason);
       return Object.freeze({ state: "unusable", item: failed, reason });
     }
-    const checksum = (await this.options.filePort.sha256(item.localUri)).toLowerCase();
+    let checksum: string;
+    try {
+      checksum = (await this.options.filePort.sha256(normalizedUri)).toLowerCase();
+    } catch (error) {
+      const reason = `The retained offline checksum could not be read yet: ${error instanceof Error ? error.message : String(error)}`;
+      return Object.freeze({ state: "unknown", item, reason });
+    }
     if (!this.isCurrentOperation(input.assetId, operationId)) return Object.freeze({ state: "unusable", item, reason: "A newer offline operation replaced this checksum verification." });
     if (checksum !== input.checksumSha256.toLowerCase()) {
       const reason = "The offline file checksum does not match the current verified manifest.";
       const failed = this.fail(item, now, "integrity", reason);
       return Object.freeze({ state: "unusable", item: failed, reason });
     }
-    const validMedia = await this.options.filePort.validateMedia(item.localUri, input.mediaType, input.fileExtension);
+    let validMedia: boolean;
+    try {
+      validMedia = await this.options.filePort.validateMedia(normalizedUri, input.mediaType, input.fileExtension);
+    } catch (error) {
+      const reason = `The retained offline media could not be read yet: ${error instanceof Error ? error.message : String(error)}`;
+      return Object.freeze({ state: "unknown", item, reason });
+    }
     if (!this.isCurrentOperation(input.assetId, operationId)) return Object.freeze({ state: "unusable", item, reason: "A newer offline operation replaced this media verification." });
     if (!validMedia) {
       const reason = "The offline file is not readable supported media.";
       const failed = this.fail(item, now, "media", reason);
       return Object.freeze({ state: "unusable", item: failed, reason });
     }
-    const normalizedUri = await this.options.filePort.normalizePlaybackUri(item.localUri, input.assetId, input.remoteUri);
-    if (!this.isCurrentOperation(input.assetId, operationId)) return Object.freeze({ state: "unusable", item, reason: "A newer offline operation replaced this source migration." });
-    const verified = Object.freeze({ ...item, localUri: normalizedUri, stage: "available_offline" as const, updatedAt: now, lastAccessedAt: now, lastError: null, lastErrorCode: null, lastErrorCustomerCopy: null, lastErrorTechnicalReason: null });
+    const verified = Object.freeze({ ...item, state: "available" as const, localUri: normalizedUri, stage: "available_offline" as const, updatedAt: now, lastAccessedAt: now, lastError: null, lastErrorCode: null, lastErrorCustomerCopy: null, lastErrorTechnicalReason: null });
     this.items.set(input.assetId, verified);
     return Object.freeze({ state: "local", uri: normalizedUri, item: verified });
   }
   private isCurrentOperation(assetId: string, operationId: number): boolean {
     const current = this.items.get(assetId);
-    return current?.operationId === operationId && current.state === "available";
+    return current?.operationId === operationId;
   }
   async delete(assetId: string, now: string, activeAssetIds: ReadonlySet<string>): Promise<OfflineManifestItemV1 | null> {
     const item = this.items.get(assetId);

@@ -47,6 +47,10 @@ import {
 } from "./readinessCoordinatorV1";
 import { DirectedCheckpointProjectionEpochV1, isRecoverableDirectedCheckpointV1 } from "./directedContinuationPolicyV1";
 import {
+  DirectedForegroundReconciliationCoordinatorV1,
+  projectDirectedAvailabilityReconcilingV1,
+} from "./foregroundAvailabilityLifecycleV1";
+import {
   classicComponentTokensV1,
   classicVisualPaletteV1,
   classicVisualThemeV1,
@@ -467,15 +471,15 @@ function SessionCardV1(props: Readonly<{
     ? "Not available"
     : props.availability.state === "active-session"
       ? "Session active"
-      : props.availability.offlineReady
-        ? "Available offline"
-        : props.availability.state === "downloading"
+      : props.availability.state === "reconciling" || props.availability.state === "checking"
+        ? "Checking availability"
+        : props.availability.offlineReady
+          ? "Available offline"
+          : props.availability.state === "downloading"
           ? `Downloading ${props.availability.verifiedCount} of ${props.availability.totalCount}`
         : props.availability.state === "package-corrupt"
           ? "Download needs attention"
-          : props.availability.state === "checking"
-            ? "Checking availability"
-            : props.availability.state === "offline-missing"
+          : props.availability.state === "offline-missing"
               ? "Streaming unavailable"
               : "Streaming available";
   const canDownload = props.availability.state === "ready-to-stream" || props.availability.state === "package-corrupt";
@@ -523,7 +527,7 @@ function SessionCardV1(props: Readonly<{
       </Pressable>
       <View style={directedStyles.sessionCardFooter}>
         <Text accessibilityLiveRegion="polite" style={directedStyles.downloadState}>{stateLabel}</Text>
-        {props.availability.offlineReady || props.availability.state === "active-session" ? null : (
+        {props.availability.offlineReady || ["active-session", "checking", "reconciling"].includes(props.availability.state) ? null : (
           <Pressable
             accessibilityLabel={`Download ${score.title} for offline listening`}
             accessibilityRole="button"
@@ -640,8 +644,10 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
   const projectionInFlight = useRef<Promise<NativeDirectedSessionStateV1 | null> | null>(null);
   const mountedRef = useRef(false);
   const lifecycleEpochRef = useRef(0);
+  const ownerProjectionRequestIdRef = useRef(0);
   const checkpointProjectionEpochRef = useRef(new DirectedCheckpointProjectionEpochV1());
   const availabilityRequestIdRef = useRef(0);
+  const foregroundReconciliationCoordinatorRef = useRef(new DirectedForegroundReconciliationCoordinatorV1());
   const readinessCoordinator = useMemo(() => createDirectedReadinessCoordinatorV1({
     loadStable: () => directedSessionServiceV1.getStableAvailabilities(DIRECTED_SCENE_IDS_V1),
     probeRemote: canReachRemoteMediaSourceV1,
@@ -683,16 +689,89 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
   const projectCurrentFromNative = useCallback(async (): Promise<NativeDirectedSessionStateV1 | null> => {
     if (projectionInFlight.current) return projectionInFlight.current;
     const lifecycleEpoch = lifecycleEpochRef.current;
+    const ownerProjectionRequestId = ownerProjectionRequestIdRef.current;
     const pending = directedSessionServiceV1.queryDirectedSession();
     projectionInFlight.current = pending;
     try {
       const state = await pending;
-      if (mountedRef.current && lifecycleEpochRef.current === lifecycleEpoch) setNativeState(state);
+      if (
+        mountedRef.current
+        && lifecycleEpochRef.current === lifecycleEpoch
+        && ownerProjectionRequestIdRef.current === ownerProjectionRequestId
+      ) setNativeState(state);
       return state;
     } finally {
       if (projectionInFlight.current === pending) projectionInFlight.current = null;
     }
   }, []);
+
+  const reconcileForeground = useCallback(async () => {
+    const lifecycleEpoch = lifecycleEpochRef.current;
+    const checkpointProjectionEpoch = checkpointProjectionEpochRef.current.capture();
+    const requestId = ++availabilityRequestIdRef.current;
+    ownerProjectionRequestIdRef.current += 1;
+    readinessCoordinator.supersede();
+    setAvailability((current) => Object.freeze(Object.fromEntries(DIRECTED_SCENE_IDS_V1.map((sceneId) => [
+      sceneId,
+      projectDirectedAvailabilityReconcilingV1(current[sceneId]),
+    ])) as Record<DirectedSceneIdV1, DirectedAvailabilityProjectionV1>));
+    setRemoteFreshness({ "rain-desk-v1": "idle", "porcelain-table-v1": "idle", "soft-wardrobe-v1": "idle" });
+    try {
+      const result = await foregroundReconciliationCoordinatorRef.current.reconcile(
+        async () => directedSessionServiceV1.reconcileForegroundSnapshot(DIRECTED_SCENE_IDS_V1),
+      );
+      if (
+        !result.current
+        || !mountedRef.current
+        || lifecycleEpochRef.current !== lifecycleEpoch
+        || availabilityRequestIdRef.current !== requestId
+        || !checkpointProjectionEpochRef.current.isCurrent(checkpointProjectionEpoch)
+      ) return;
+      const snapshot = result.value;
+      const capability = Object.values(snapshot.availability).some((item) => item.state !== "native-unavailable");
+      setCapabilityReady(capability);
+      setAvailability(snapshot.availability);
+      setNativeState(snapshot.nativeState);
+      setCheckpoint(snapshot.checkpoint);
+      const freshness = Object.fromEntries(directedSceneScoresV1.map((score) => {
+        const stable = snapshot.availability[score.sceneId];
+        const active = snapshot.nativeState?.sceneId === score.sceneId
+          && ["playing", "paused", "interrupted"].includes(snapshot.nativeState.transport);
+        return [score.sceneId, score.productionEligible && !active && stable.startable && !stable.offlineReady ? "checking" : "idle"];
+      })) as Record<DirectedSceneIdV1, DirectedRemoteFreshnessUiV1>;
+      setRemoteFreshness(freshness);
+      for (const score of directedSceneScoresV1) {
+        if (freshness[score.sceneId] !== "checking") continue;
+        void readinessCoordinator.refreshRemote(score.assets[0].sourceUri).then(async (remote) => {
+          if (
+            !remote.current
+            || !mountedRef.current
+            || lifecycleEpochRef.current !== lifecycleEpoch
+            || availabilityRequestIdRef.current !== requestId
+          ) return;
+          setRemoteFreshness((current) => ({ ...current, [score.sceneId]: remote.status }));
+          if (remote.status !== "unreachable") return;
+          const unavailable = await directedSessionServiceV1.getAvailability(score.sceneId, false);
+          if (
+            !mountedRef.current
+            || lifecycleEpochRef.current !== lifecycleEpoch
+            || availabilityRequestIdRef.current !== requestId
+          ) return;
+          setAvailability((current) => ({
+            ...current,
+            [score.sceneId]: projectDirectedRemoteFreshnessAvailabilityV1(current[score.sceneId], unavailable, remote.status),
+          }));
+        });
+      }
+    } catch {
+      if (
+        !mountedRef.current
+        || lifecycleEpochRef.current !== lifecycleEpoch
+        || availabilityRequestIdRef.current !== requestId
+      ) return;
+      setCapabilityReady((await directedSessionServiceV1.refreshCapability()) === 1);
+    }
+  }, [readinessCoordinator]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -708,31 +787,36 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
       else if (state?.transport === "failed") setScreen("failure");
     });
     const removePackage = directedSessionServiceV1.addPackageListener((sceneId, next) => {
-      if (mountedRef.current && lifecycleEpochRef.current === lifecycleEpoch) setAvailability((current) => ({ ...current, [sceneId]: next }));
-    });
-    const checkpointProjectionEpoch = checkpointProjectionEpochRef.current.capture();
-    void directedSessionServiceV1.loadCheckpoint().then((storedCheckpoint) => {
-      if (!mountedRef.current || lifecycleEpochRef.current !== lifecycleEpoch || !checkpointProjectionEpochRef.current.isCurrent(checkpointProjectionEpoch)) return;
-      setCheckpoint(storedCheckpoint);
+      if (!mountedRef.current || lifecycleEpochRef.current !== lifecycleEpoch) return;
+      foregroundReconciliationCoordinatorRef.current.supersede("package-mutation");
+      availabilityRequestIdRef.current += 1;
+      setAvailability((current) => ({ ...current, [sceneId]: next }));
     });
     void Promise.all([
-      refreshAvailability(),
-      projectCurrentFromNative(),
+      reconcileForeground(),
       directedSessionServiceV1.loadSavedPaths(),
-    ]).then(([, , storedPaths]) => {
+    ]).then(([, storedPaths]) => {
       if (!mountedRef.current || lifecycleEpochRef.current !== lifecycleEpoch) return;
-      setNativeState(directedSessionServiceV1.currentDirectedSession());
       setSavedPaths(storedPaths);
     });
     const appState = AppState.addEventListener("change", (next) => {
       if (!mountedRef.current || lifecycleEpochRef.current !== lifecycleEpoch) return;
       setDirectedAppState(next);
-      if (next === "active") void projectCurrentFromNative();
+      if (next === "active") {
+        void reconcileForeground();
+      } else {
+        ownerProjectionRequestIdRef.current += 1;
+        availabilityRequestIdRef.current += 1;
+        foregroundReconciliationCoordinatorRef.current.supersede(next === "background" ? "background" : "inactive");
+        readinessCoordinator.supersede();
+      }
     });
     return () => {
       mountedRef.current = false;
       checkpointProjectionEpochRef.current.supersede();
+      ownerProjectionRequestIdRef.current += 1;
       availabilityRequestIdRef.current += 1;
+      foregroundReconciliationCoordinatorRef.current.supersede("unmount");
       readinessCoordinator.supersede();
       if (lifecycleEpochRef.current === lifecycleEpoch) lifecycleEpochRef.current += 1;
       motion.remove();
@@ -740,7 +824,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
       removePackage();
       appState.remove();
     };
-  }, [projectCurrentFromNative, refreshAvailability]);
+  }, [reconcileForeground, readinessCoordinator]);
 
   useEffect(() => {
     if (!shouldRunDirectedForegroundProjectionV1(directedAppState, nativeState)) return;
@@ -981,7 +1065,20 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
           <Text style={directedStyles.sectionLabel}>Continue</Text>
           <Text style={directedStyles.cardTitle}>{checkpoint.title}</Text>
           <Text style={directedStyles.body}>{checkpoint.phaseLabel} · Restart from this phase with verified sources.</Text>
-          <DirectedButtonV1 label="Restart current phase" onPress={() => void start({ sceneId: checkpoint.sceneId, outputProfile: checkpoint.outputProfile, hardAvoidanceIds: checkpoint.hardAvoidanceIds, allowRemote: true, initialAppliedSteering: checkpoint.appliedSteering, initialManualTrims: checkpoint.manualTrims, restartAtPhaseIndex: checkpoint.phaseIndex })} />
+          <DirectedButtonV1
+            label={busy ? "Restarting…" : "Restart current phase"}
+            disabled={busy}
+            onPress={() => void start({
+              sceneId: checkpoint.sceneId,
+              outputProfile: checkpoint.outputProfile,
+              hardAvoidanceIds: checkpoint.hardAvoidanceIds,
+              allowRemote: true,
+              initialAppliedSteering: checkpoint.appliedSteering,
+              initialManualTrims: checkpoint.manualTrims,
+              restartAtPhaseIndex: checkpoint.phaseIndex,
+              requireAggregateOwnerAbsent: true,
+            })}
+          />
         </View>
       ) : null}
       <Text style={directedStyles.listSectionLabel}>Featured session</Text>

@@ -44,12 +44,14 @@ export const expoOfflineFilePortV1: OfflineFilePortV1 = Object.freeze({
   async normalizePlaybackUri(uri, assetId, remoteUri) {
     ensureDirectory(offlineRoot);
     const expectedUri = new File(offlineRoot, `${safeName(assetId)}${safeMediaExtension(remoteUri)}`).uri;
-    if (uri === expectedUri || Platform.OS !== "ios") return uri;
-    const source = new File(uri);
-    if (!source.exists) return uri;
+    if (Platform.OS !== "ios" || uri === expectedUri) return uri;
     const target = new File(expectedUri);
-    if (target.exists) target.delete();
-    source.move(target);
+    // iOS can rotate the app-container UUID across native upgrades/process restoration while
+    // preserving Documents bytes. Prefer the current relative package location even when the
+    // persisted absolute URL no longer resolves.
+    if (target.exists) return target.uri;
+    const source = new File(uri);
+    if (source.exists) source.move(target);
     return target.uri;
   },
   async availableBytes() { return Number(Paths.availableDiskSpace ?? 0); },

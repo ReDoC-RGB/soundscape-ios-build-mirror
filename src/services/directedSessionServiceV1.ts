@@ -49,6 +49,10 @@ import {
   shouldPersistDirectedProjectionV1,
 } from "../directedSessions/foregroundProjectionPolicyV1";
 import {
+  planDirectedForegroundOwnerReconciliationV1,
+  projectDirectedAvailabilityReconcilingV1,
+} from "../directedSessions/foregroundAvailabilityLifecycleV1";
+import {
   createDirectedTerminalEndFenceV1,
   isDirectedProjectionFencedByTerminalEndV1,
   isRecoverableDirectedCheckpointV1,
@@ -109,6 +113,12 @@ const nativeActivationDiagnosticV1 = (error: unknown, fallbackStage: DirectedAct
 
 type DirectedStateListenerV1 = (state: NativeDirectedSessionStateV1 | null) => void;
 type DirectedPackageListenerV1 = (sceneId: DirectedSceneIdV1, availability: DirectedAvailabilityProjectionV1) => void;
+export type DirectedForegroundSnapshotV1 = Readonly<{
+  availability: Readonly<Record<DirectedSceneIdV1, DirectedAvailabilityProjectionV1>>;
+  nativeState: NativeDirectedSessionStateV1 | null;
+  checkpoint: DirectedSessionStateV1 | null;
+  ownerDisposition: ReturnType<typeof planDirectedForegroundOwnerReconciliationV1>["kind"];
+}>;
 type NativeDirectedCommandFenceV1 = Readonly<{
   sessionId: string;
   generationId: number;
@@ -242,6 +252,8 @@ export class DirectedSessionServiceV1 {
   private activationDiagnostic: DirectedActivationDiagnosticV1 | null = null;
   private activationAttemptEpoch = 0;
   private pendingActivationAbortController: AbortController | null = null;
+  private foregroundAvailabilityHydrated = false;
+  private readonly unresolvedForegroundAssetIds = new Set<string>();
 
   constructor() {
     try {
@@ -417,6 +429,116 @@ export class DirectedSessionServiceV1 {
         manifestItems,
       }),
     ])) as Record<DirectedSceneIdV1, DirectedAvailabilityProjectionV1>);
+  }
+
+  async reconcileForegroundAvailabilities(
+    sceneIds: readonly DirectedSceneIdV1[],
+  ): Promise<Readonly<Record<DirectedSceneIdV1, DirectedAvailabilityProjectionV1>>> {
+    const manager = await this.getOfflineManager();
+    const now = new Date().toISOString();
+    const sceneByAssetId = new Map<string, DirectedSceneIdV1>();
+    const inputsByAssetId = new Map<string, ReturnType<typeof createDirectedDownloadInputsV1>[number]>();
+    for (const sceneId of sceneIds) {
+      for (const input of createDirectedDownloadInputsV1(sceneId, now)) {
+        sceneByAssetId.set(input.assetId, sceneId);
+        inputsByAssetId.set(input.assetId, input);
+      }
+    }
+    for (const [assetId, input] of inputsByAssetId) {
+      const item = manager.get(assetId);
+      if (!item) {
+        this.unresolvedForegroundAssetIds.delete(assetId);
+        continue;
+      }
+      const shouldProbe = !this.foregroundAvailabilityHydrated
+        || item.state === "failed/retryable"
+        || this.unresolvedForegroundAssetIds.has(assetId);
+      if (!shouldProbe) continue;
+      let resolution = await manager.resolveVerifiedLocal(input, now);
+      // Protected-data and bridge reconstruction can be transient on the first active turn.
+      // Retry once in the same generation without sleeping; unknown remains explicitly
+      // reconciling and never becomes durable corruption.
+      if (resolution.state === "unknown") resolution = await manager.resolveVerifiedLocal(input, now);
+      if (resolution.state === "unknown") this.unresolvedForegroundAssetIds.add(assetId);
+      else this.unresolvedForegroundAssetIds.delete(assetId);
+    }
+    this.foregroundAvailabilityHydrated = true;
+    await appPersistence.saveOfflineManifestRaw(JSON.stringify(manager.enumerate()));
+    const stable = await this.getStableAvailabilities(sceneIds);
+    const unresolvedSceneIds = new Set<DirectedSceneIdV1>();
+    for (const assetId of this.unresolvedForegroundAssetIds) {
+      const sceneId = sceneByAssetId.get(assetId);
+      if (sceneId) unresolvedSceneIds.add(sceneId);
+    }
+    return Object.freeze(Object.fromEntries(sceneIds.map((sceneId) => [
+      sceneId,
+      unresolvedSceneIds.has(sceneId) ? projectDirectedAvailabilityReconcilingV1(stable[sceneId]) : stable[sceneId],
+    ])) as Record<DirectedSceneIdV1, DirectedAvailabilityProjectionV1>);
+  }
+
+  private async reconcileForegroundOwnerV1(): Promise<ReturnType<typeof planDirectedForegroundOwnerReconciliationV1>["kind"]> {
+    const inspect = async () => {
+      try {
+        const [nativeCandidate, aggregateCandidate] = await Promise.all([
+          NativeMedia.getDirectedSessionState(),
+          NativeMedia.queryState(),
+        ]);
+        const native = finiteNativeState(nativeCandidate) ? nativeCandidate : null;
+        const aggregate = Object.freeze({
+          sessionType: aggregateCandidate.sessionType ?? null,
+          sessionId: aggregateCandidate.sessionId || null,
+          generationId: Number.isFinite(aggregateCandidate.generationId) ? aggregateCandidate.generationId : null,
+        });
+        return Object.freeze({ native, aggregate, conclusive: true });
+      } catch {
+        return Object.freeze({
+          native: null,
+          aggregate: Object.freeze({ sessionType: null, sessionId: null, generationId: null }),
+          conclusive: false,
+        });
+      }
+    };
+    let inspected = await inspect();
+    let plan = planDirectedForegroundOwnerReconciliationV1({
+      currentOwner: this.current ? Object.freeze({ sessionId: this.current.sessionId, generationId: this.current.generationId }) : null,
+      nativeOwner: inspected.native ? Object.freeze({ sessionId: inspected.native.sessionId, generationId: inspected.native.generationId }) : null,
+      aggregateOwner: inspected.aggregate,
+      queriesConclusive: inspected.conclusive,
+    });
+    if (plan.kind === "retain-current-retry" && inspected.conclusive) {
+      inspected = await inspect();
+      plan = planDirectedForegroundOwnerReconciliationV1({
+        currentOwner: this.current ? Object.freeze({ sessionId: this.current.sessionId, generationId: this.current.generationId }) : null,
+        nativeOwner: inspected.native ? Object.freeze({ sessionId: inspected.native.sessionId, generationId: inspected.native.generationId }) : null,
+        aggregateOwner: inspected.aggregate,
+        queriesConclusive: inspected.conclusive,
+      });
+    }
+    if (plan.kind === "accept-native" && inspected.native) {
+      await this.acceptNativeState(inspected.native);
+    } else if ((plan.kind === "clear-directed" || plan.kind === "preserve-classic") && this.current) {
+      await this.clearExactLocalOwner(this.current.sessionId, this.current.generationId);
+    }
+    return plan.kind;
+  }
+
+  async reconcileForegroundSnapshot(
+    sceneIds: readonly DirectedSceneIdV1[],
+  ): Promise<DirectedForegroundSnapshotV1> {
+    const [availability, checkpoint] = await Promise.all([
+      this.reconcileForegroundAvailabilities(sceneIds),
+      this.loadCheckpoint(),
+    ]);
+    // Package integrity can require filesystem hashing. Project native ownership only after that
+    // slower work so a Classic/Directed handoff that occurs during reconciliation wins the
+    // final lifecycle snapshot rather than an owner read captured at reconciliation start.
+    const ownerDisposition = await this.reconcileForegroundOwnerV1();
+    return Object.freeze({
+      availability,
+      nativeState: this.current,
+      checkpoint,
+      ownerDisposition,
+    });
   }
 
   async getAvailability(sceneId: DirectedSceneIdV1, networkAvailable: boolean): Promise<DirectedAvailabilityProjectionV1> {
@@ -1204,14 +1326,20 @@ export class DirectedSessionServiceV1 {
     const manager = await this.getOfflineManager();
     const now = new Date().toISOString();
     const verifiedAssetIds = new Set<string>();
+    const unavailableForThisAttempt = new Set<string>();
     for (const downloadInput of createDirectedDownloadInputsV1(sceneId, now)) {
       if (verifiedAssetIds.has(downloadInput.assetId)) continue;
       verifiedAssetIds.add(downloadInput.assetId);
-      await manager.resolveVerifiedLocal(downloadInput, now);
+      const resolution = await manager.resolveVerifiedLocal(downloadInput, now);
+      if (resolution.state !== "local") unavailableForThisAttempt.add(downloadInput.assetId);
     }
     const reconciled = manager.enumerate();
     await appPersistence.saveOfflineManifestRaw(JSON.stringify(reconciled));
-    return reconciled;
+    // Unknown file access fails closed for this playback attempt without converting durable package
+    // truth into a redownload requirement. A later active foreground generation can heal/retry it.
+    return Object.freeze(reconciled.map((item) => unavailableForThisAttempt.has(item.assetId) && item.state === "available"
+      ? Object.freeze({ ...item, state: "failed/retryable" as const, stage: "failed" as const })
+      : item));
   }
 
   private async publishPackage(sceneId: DirectedSceneIdV1, networkAvailable: boolean): Promise<DirectedAvailabilityProjectionV1> {
