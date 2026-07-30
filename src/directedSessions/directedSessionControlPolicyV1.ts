@@ -1,4 +1,4 @@
-export type DirectedControlActionV1 = "pause" | "resume" | "end";
+export type DirectedControlActionV1 = "pause" | "resume" | "restart-current-phase" | "end";
 
 export type DirectedControlOwnerV1 = Readonly<{
   sessionId: string;
@@ -56,6 +56,7 @@ export function planDirectedSessionControlV1(input: Readonly<{
   }
   if (input.aggregateOwner.sessionType !== null) return Object.freeze({ kind: "reject-stale" });
   if (input.action === "end") return Object.freeze({ kind: "retire-missing" });
+  if (input.action === "restart-current-phase") return Object.freeze({ kind: "reject-stale" });
   if (input.action === "pause") return Object.freeze({ kind: "recover-current-paused" });
   return Object.freeze({ kind: "recover-current" });
 }

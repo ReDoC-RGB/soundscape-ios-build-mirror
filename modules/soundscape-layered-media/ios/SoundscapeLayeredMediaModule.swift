@@ -71,10 +71,15 @@ private final class IOSLayeredMediaEngine {
   private let directedOpeningCoordinator = DirectedOpeningConsumerCoordinatorV1()
   private var directedOpeningReadiness: [DirectedOpeningConsumerKeyV1: NSKeyValueObservation] = [:]
   private var directedOpeningTimeouts: [DirectedOpeningConsumerKeyV1: DispatchSourceTimer] = [:]
+  private var directedOpeningRuntimeTokens: [DirectedOpeningConsumerKeyV1: UUID] = [:]
+  private var directedOpeningAttemptIds: [DirectedOpeningConsumerKeyV1: UUID] = [:]
+  private var directedOpeningExpectedFences: [DirectedOpeningConsumerKeyV1: DirectedRuntimeFenceV1] = [:]
+  private var directedRuntimeEpoch = 0
   private var directedPhaseCrossfadeMs: Double = 300
   private var maxLayerGain: Float = 0.65
   private var minimumOptionalGain: Float = 0.0001
   private var currentDirectedLayerId: String?
+  private lazy var directedRuntimeConsumer = DirectedRestartRuntimeConsumerV1(adapter: self)
   var emit: (([String: Any]) -> Void)?
 
   init() {
@@ -443,6 +448,7 @@ private final class IOSLayeredMediaEngine {
     switch type {
     case "play", "resume": acknowledgement = scheduler.play(command)
     case "pause": acknowledgement = scheduler.pause(command)
+    case "restart-current-phase": acknowledgement = scheduler.restartCurrentPhase(command)
     case "stop": acknowledgement = scheduler.stop(command, reason: payload["endedReason"] as? String ?? "user-ended")
     default: throw error(3, "UNKNOWN_DIRECTED_COMMAND")
     }
@@ -456,18 +462,24 @@ private final class IOSLayeredMediaEngine {
         layers.values.forEach { $0.player.pause() }
         userPausedOrStopped = true
         interruptionMayResume = false
+      case "restart-current-phase":
+        userPausedOrStopped = scheduler.snapshot().transport != .playing
+        interruptionMayResume = false
       case "stop":
         userPausedOrStopped = true
         interruptionMayResume = false
       default: break
       }
     }
+    if acknowledgement.status == "accepted", ["play", "resume", "pause"].contains(type) {
+      rebasePendingDirectedRestartOpenings()
+    }
     consumeDirectedActions()
     if acknowledgement.status == "accepted", type == "play" || type == "resume" {
       resumeEligibleDirectedConsumers()
     }
     scheduleDirectedWake()
-    updateNowPlaying(rate: type == "play" || type == "resume" ? 1 : 0)
+    updateNowPlaying(rate: scheduler.snapshot().transport == .playing ? 1 : 0)
     _ = publish(kind: "directed_transport_ack", phase: directedPhase())
     return scheduler.dictionary()
   }
@@ -547,19 +559,48 @@ private final class IOSLayeredMediaEngine {
     return scheduler.dictionary()
   }
 
+  private func strictDirectedInteger(_ payload: [String: Any], _ name: String) throws -> Int {
+    guard let number = payload[name] as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { throw error(22, "INVALID_INTEGER_\(name)") }
+    let value = number.doubleValue
+    guard value.isFinite, value >= 0, value <= 9_007_199_254_740_991, value.rounded(.towardZero) == value else { throw error(22, "INVALID_INTEGER_\(name)") }
+    return Int(value)
+  }
+
+  private func strictDirectedString(_ payload: [String: Any], _ name: String) throws -> String {
+    guard let value = payload[name] as? String, !value.isEmpty, value.count <= 240 else { throw error(22, "INVALID_STRING_\(name)") }
+    return value
+  }
+
   private func parseDirectedCommand(_ payload: [String: Any]) throws -> DirectedSteeringCommandV1 {
-    let parsed = try parseOwner(payload)
-    guard
-      let expectedPhaseRevision = (payload["expectedPhaseRevision"] as? NSNumber)?.intValue,
-      let expectedPathRevision = (payload["expectedPathRevision"] as? NSNumber)?.intValue,
-      let idempotencyKey = payload["idempotencyKey"] as? String,
-      !idempotencyKey.isEmpty
-    else { throw error(22, "INVALID_DIRECTED_COMMAND_FENCE") }
+    let sessionId = try strictDirectedString(payload, "sessionId")
+    let generationId = try strictDirectedInteger(payload, "generationId")
+    let operationId = try strictDirectedInteger(payload, "operationId")
+    let type = payload["type"] == nil ? "" : try strictDirectedString(payload, "type")
+    guard type.isEmpty || ["play", "pause", "resume", "restart-current-phase", "stop", "steer", "different-texture", "cancel-pending"].contains(type) else {
+      throw error(22, "INVALID_DIRECTED_COMMAND_TYPE")
+    }
+    let expectedPhaseRevision = try strictDirectedInteger(payload, "expectedPhaseRevision")
+    let expectedPathRevision = try strictDirectedInteger(payload, "expectedPathRevision")
+    let idempotencyKey = try strictDirectedString(payload, "idempotencyKey")
+    let allowed = Set(["sessionId", "generationId", "operationId", "expectedPhaseRevision", "expectedPathRevision", "idempotencyKey", "type", "endedReason",
+      "restartRequestId", "expectedPhaseId", "expectedTransportGeneration", "axis", "level", "fromLayerId", "toLayerId", "layerId", "enabled", "trimDb", "outputProfile"])
+    guard Set(payload.keys).isSubset(of: allowed) else { throw error(22, "INVALID_DIRECTED_COMMAND_FIELD") }
+    let requestId = payload["restartRequestId"] == nil ? nil : try strictDirectedString(payload, "restartRequestId")
+    let phaseId = payload["expectedPhaseId"] == nil ? nil : try strictDirectedString(payload, "expectedPhaseId")
+    let transportGeneration = payload["expectedTransportGeneration"] == nil ? nil : try strictDirectedInteger(payload, "expectedTransportGeneration")
+    let restart = type == "restart-current-phase"
+    let printableRequest = requestId?.unicodeScalars.allSatisfy { $0.value >= 33 && $0.value <= 126 } ?? false
+    guard (!restart && requestId == nil && phaseId == nil && transportGeneration == nil)
+      || (restart && printableRequest && phaseId != nil && transportGeneration != nil)
+    else { throw error(22, "INVALID_RESTART_COMMAND") }
     return DirectedSteeringCommandV1(
-      owner: DirectedSchedulerOwnerV1(sessionId: parsed.sessionId, generationId: parsed.generationId, operationId: parsed.operationId),
+      owner: DirectedSchedulerOwnerV1(sessionId: sessionId, generationId: generationId, operationId: operationId),
       expectedPhaseRevision: expectedPhaseRevision,
       expectedPathRevision: expectedPathRevision,
-      idempotencyKey: idempotencyKey
+      idempotencyKey: idempotencyKey,
+      restartRequestId: requestId,
+      expectedPhaseId: phaseId,
+      expectedTransportGeneration: transportGeneration
     )
   }
 
@@ -603,6 +644,9 @@ private final class IOSLayeredMediaEngine {
       userPausedOrStopped = type != "play"
       interruptionMayResume = false
     }
+    if acknowledgement.status == "accepted", type == "play" || type == "pause" {
+      rebasePendingDirectedRestartOpenings()
+    }
     consumeDirectedActions()
     if acknowledgement.status == "accepted", type == "play" {
       resumeEligibleDirectedConsumers()
@@ -618,19 +662,21 @@ private final class IOSLayeredMediaEngine {
     guard let scheduler = directedScheduler else { return }
     let delayMs = scheduler.nextWakeDelayMs()
     guard delayMs.isFinite else { return }
-    let expectedOwner = owner
-    let token = UUID()
+    let expectedFence = directedRuntimeFenceV1(scheduler.snapshot())
+    let token = directedRuntimeConsumer.armWake(snapshot: scheduler.snapshot(), futurePending: true)
     directedWakeToken = token
     let source = DispatchSource.makeTimerSource(queue: .main)
     source.schedule(deadline: .now() + max(0.001, delayMs / 1000), leeway: .milliseconds(20))
     source.setEventHandler { [weak self, weak source] in
       guard let self, let source else { return }
-      guard self.directedWakeToken == token, self.owner.sessionId == expectedOwner.sessionId,
-        self.owner.generationId == expectedOwner.generationId else { return }
+      guard self.directedWakeToken == token,
+        self.directedRuntimeConsumer.wakeIsCurrent(token, snapshot: self.directedScheduler?.snapshot()),
+        self.directedScheduler.map({ directedRuntimeFenceV1($0.snapshot()) }) == expectedFence else { return }
       source.setEventHandler {}
       source.cancel()
       self.directedWake = nil
       self.directedWakeToken = nil
+      self.directedRuntimeConsumer.completeWake(token)
       _ = self.directedScheduler?.reconcile()
       self.consumeDirectedActions()
       self.updateNowPlaying(rate: self.directedPhase() == "playing" ? 1 : 0)
@@ -645,10 +691,12 @@ private final class IOSLayeredMediaEngine {
     directedWake?.setEventHandler {}
     directedWake?.cancel()
     directedWake = nil
+    if let directedWakeToken { directedRuntimeConsumer.completeWake(directedWakeToken) }
     directedWakeToken = nil
   }
 
-  private func cancelDirectedRuntime(clearScheduler: Bool, clearActiveEvents: Bool) {
+  private func cancelDirectedRuntime(clearScheduler: Bool, clearActiveEvents: Bool, resetConsumer: Bool = true) {
+    directedRuntimeEpoch &+= 1
     cancelDirectedWake()
     directedOpeningCoordinator.cancelAll()
     directedOpeningReadiness.values.forEach { $0.invalidate() }
@@ -658,45 +706,66 @@ private final class IOSLayeredMediaEngine {
       timeout.cancel()
     }
     directedOpeningTimeouts.removeAll()
+    directedOpeningRuntimeTokens.removeAll()
+    directedOpeningAttemptIds.removeAll()
+    directedOpeningExpectedFences.removeAll()
     for timer in directedCallbacks.values {
       timer.setEventHandler {}
       timer.cancel()
     }
     directedCallbacks.removeAll()
+    directedRuntimeConsumer.cancelAsyncTokens()
     directedActiveActions.removeAll()
     if clearActiveEvents {
       directedActiveEvents.removeAll()
       directedEligiblePendingPlay.removeAll()
+      if resetConsumer { directedRuntimeConsumer.resetRuntimeState(preserveFailureCount: true) }
     }
     currentDirectedLayerId = nil
     if clearScheduler { directedScheduler = nil }
   }
 
+  private func rebasePendingDirectedRestartOpenings() {
+    guard let snapshot = directedScheduler?.snapshot(),
+      directedRuntimeConsumer.rebasePendingRestartTransport(snapshot: snapshot)
+    else { return }
+    let fence = directedRuntimeFenceV1(snapshot)
+    for key in directedOpeningAttemptIds.keys {
+      directedOpeningExpectedFences[key] = fence
+    }
+  }
+
   private func consumeDirectedActions() {
     guard let scheduler = directedScheduler else { return }
-    for action in scheduler.drainActions() {
-      switch action.type {
-      case .startEvent:
-        guard let eventId = action.eventId, let layerId = action.layerId, let layer = layers[layerId] else {
-          scheduler.schedulerFailed()
-          continue
-        }
-        beginDirectedOpeningConsumer(eventId: eventId, layerId: layerId, layer: layer, action: action)
-      case .phaseChanged, .applyGains:
-        applyDirectedGains(durationMs: action.type == .phaseChanged ? max(action.fadeInMs, directedPhaseCrossfadeMs) : 250)
-      case .terminalFade:
-        for (eventId, layerId) in directedActiveEvents {
-          scheduleDirectedVolume(layerId: layerId, eventId: eventId, target: 0, durationMs: action.fadeOutMs)
-        }
-      case .stopAll:
-        let terminalKind = action.detail == "directed_completed" ? "directed_completed" : (action.detail == "directed_failed" ? "directed_failed" : "directed_stopped")
-        cancelDirectedRuntime(clearScheduler: false, clearActiveEvents: true)
-        stopPlayers(release: true)
-        completed = terminalKind == "directed_completed"
-        completionPositionMillis = completed ? durationMillis : nil
-        updateNowPlaying(rate: 0)
-        _ = publish(kind: terminalKind, phase: completed ? "ended" : (terminalKind == "directed_failed" ? "error" : "stopped"))
+    let actions = scheduler.drainActions()
+    directedRuntimeConsumer.consume(actions: actions, commit: scheduler.snapshot().restartCommit)
+  }
+
+  private func executeDirectedAction(_ action: DirectedSchedulerActionV1) {
+    guard let scheduler = directedScheduler else { return }
+    switch action.type {
+    case .startEvent:
+      guard let eventId = action.eventId, let layerId = action.layerId, let layer = layers[layerId] else {
+        scheduler.schedulerFailed()
+        return
       }
+      beginDirectedOpeningConsumer(eventId: eventId, layerId: layerId, layer: layer, action: action)
+    case .restartPhase:
+      scheduler.schedulerFailed()
+    case .phaseChanged, .applyGains:
+      applyDirectedGains(durationMs: action.type == .phaseChanged ? max(action.fadeInMs, directedPhaseCrossfadeMs) : 250)
+    case .terminalFade:
+      for (eventId, layerId) in directedActiveEvents {
+        scheduleDirectedVolume(layerId: layerId, eventId: eventId, target: 0, durationMs: action.fadeOutMs)
+      }
+    case .stopAll:
+      let terminalKind = action.detail == "directed_completed" ? "directed_completed" : (action.detail == "directed_failed" ? "directed_failed" : "directed_stopped")
+      cancelDirectedRuntime(clearScheduler: false, clearActiveEvents: true, resetConsumer: false)
+      stopPlayers(release: true)
+      completed = terminalKind == "directed_completed"
+      completionPositionMillis = completed ? durationMillis : nil
+      updateNowPlaying(rate: 0)
+      _ = publish(kind: terminalKind, phase: completed ? "ended" : (terminalKind == "directed_failed" ? "error" : "stopped"))
     }
   }
 
@@ -709,11 +778,17 @@ private final class IOSLayeredMediaEngine {
     }
   }
 
-  private func cleanupDirectedOpeningConsumer(_ key: DirectedOpeningConsumerKeyV1) {
+  private func cleanupDirectedOpeningConsumer(_ key: DirectedOpeningConsumerKeyV1, attemptId: UUID? = nil) {
+    if let attemptId, directedOpeningAttemptIds[key] != attemptId { return }
+    directedOpeningAttemptIds.removeValue(forKey: key)
+    directedOpeningExpectedFences.removeValue(forKey: key)
     directedOpeningReadiness.removeValue(forKey: key)?.invalidate()
     if let timeout = directedOpeningTimeouts.removeValue(forKey: key) {
       timeout.setEventHandler {}
       timeout.cancel()
+    }
+    if let token = directedOpeningRuntimeTokens.removeValue(forKey: key) {
+      directedRuntimeConsumer.completeCallback(token)
     }
     directedOpeningCoordinator.cancel(key: key)
   }
@@ -751,15 +826,28 @@ private final class IOSLayeredMediaEngine {
     layerId: String,
     layer: LayerPlayback,
     action: DirectedSchedulerActionV1,
-    beforeAudible: (() -> Void)? = nil
+    beforeAudible: (() -> Void)? = nil,
+    startCompletion: ((Bool) -> Void)? = nil
   ) {
     if layer.player.currentItem == nil { layer.player.insert(AVPlayerItem(url: layer.sourceURL), after: nil) }
     guard let item = layer.player.currentItem else {
-      if layer.required { directedScheduler?.requiredAssetFailed(layerId) }
-      else { directedActiveEvents.removeValue(forKey: eventId); directedActiveActions.removeValue(forKey: eventId) }
+      if let startCompletion {
+        directedActiveEvents.removeValue(forKey: eventId)
+        directedActiveActions.removeValue(forKey: eventId)
+        directedRuntimeConsumer.didRemove(eventId: eventId)
+        startCompletion(false)
+      } else if layer.required {
+        directedScheduler?.requiredAssetFailed(layerId)
+      } else {
+        directedActiveEvents.removeValue(forKey: eventId)
+        directedActiveActions.removeValue(forKey: eventId)
+      }
       return
     }
     let expectedOwner = owner
+    guard let scheduler = directedScheduler else { return }
+    let expectedFence = directedRuntimeFenceV1(scheduler.snapshot())
+    let expectedRuntimeEpoch = directedRuntimeEpoch
     let key = DirectedOpeningConsumerKeyV1(
       sessionId: expectedOwner.sessionId,
       generationId: expectedOwner.generationId,
@@ -767,10 +855,17 @@ private final class IOSLayeredMediaEngine {
       layerId: layerId
     )
     cancelDirectedOpeningConsumers(eventId: eventId)
+    let attemptId = UUID()
+    directedOpeningAttemptIds[key] = attemptId
+    directedOpeningExpectedFences[key] = expectedFence
+    directedOpeningRuntimeTokens[key] = directedRuntimeConsumer.registerCallback(kind: "opening", snapshot: scheduler.snapshot())
 
     let observation = item.observe(\.status, options: [.initial, .new]) { [weak self, weak item] observed, _ in
       DispatchQueue.main.async {
-        guard let self, let item, item === observed else { return }
+        guard let self, let item, item === observed,
+          self.directedOpeningAttemptIds[key] == attemptId,
+          self.directedRuntimeEpoch == expectedRuntimeEpoch,
+          self.directedOpeningExpectedFences[key] == self.directedScheduler.map({ directedRuntimeFenceV1($0.snapshot()) }) else { return }
         self.directedOpeningCoordinator.readinessChanged(
           key: key,
           readiness: self.directedOpeningReadiness(item.status)
@@ -782,7 +877,10 @@ private final class IOSLayeredMediaEngine {
     let timeout = DispatchSource.makeTimerSource(queue: .main)
     timeout.schedule(deadline: .now() + 15, leeway: .milliseconds(50))
     timeout.setEventHandler { [weak self, weak timeout] in
-      guard let self, let timeout else { return }
+      guard let self, let timeout,
+        self.directedOpeningAttemptIds[key] == attemptId,
+        self.directedRuntimeEpoch == expectedRuntimeEpoch,
+        self.directedOpeningExpectedFences[key] == self.directedScheduler.map({ directedRuntimeFenceV1($0.snapshot()) }) else { return }
       timeout.setEventHandler {}
       timeout.cancel()
       self.directedOpeningTimeouts.removeValue(forKey: key)
@@ -796,11 +894,19 @@ private final class IOSLayeredMediaEngine {
       key: key,
       readiness: directedOpeningReadiness(item.status),
       startSeek: { [weak self, weak player = layer.player, weak item] completion in
-        guard let self, let player, let item else { completion(false); return }
+        guard let self, let player, let item,
+          self.directedOpeningAttemptIds[key] == attemptId,
+          self.directedRuntimeEpoch == expectedRuntimeEpoch,
+          self.directedOpeningExpectedFences[key] == self.directedScheduler.map({ directedRuntimeFenceV1($0.snapshot()) })
+        else { completion(false); return }
         player.seek(to: sourceOffset, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self, weak player, weak item] finished in
           DispatchQueue.main.async {
             guard let self, let player, let item,
-              self.owner == expectedOwner,
+              self.directedOpeningAttemptIds[key] == attemptId,
+              self.directedRuntimeEpoch == expectedRuntimeEpoch,
+              self.owner.sessionId == expectedOwner.sessionId,
+              self.owner.generationId == expectedOwner.generationId,
+              self.directedOpeningExpectedFences[key] == self.directedScheduler.map({ directedRuntimeFenceV1($0.snapshot()) }),
               self.layers[layerId] === layer,
               player.currentItem === item
             else { completion(false); return }
@@ -810,31 +916,46 @@ private final class IOSLayeredMediaEngine {
       },
       becomeAudible: { [weak self, weak player = layer.player, weak item] in
         guard let self, let player, let item,
-          self.owner == expectedOwner,
+          self.directedOpeningAttemptIds[key] == attemptId,
+          self.directedRuntimeEpoch == expectedRuntimeEpoch,
+          self.owner.sessionId == expectedOwner.sessionId,
+          self.owner.generationId == expectedOwner.generationId,
+          self.directedOpeningExpectedFences[key] == self.directedScheduler.map({ directedRuntimeFenceV1($0.snapshot()) }),
           self.layers[layerId] === layer,
           player.currentItem === item
         else { return }
-        self.cleanupDirectedOpeningConsumer(key)
+        self.cleanupDirectedOpeningConsumer(key, attemptId: attemptId)
         beforeAudible?()
         self.currentDirectedLayerId = layerId
         self.directedActiveEvents[eventId] = layerId
         self.directedActiveActions[eventId] = action
+        self.directedRuntimeConsumer.didActivate(action)
         if self.directedScheduler?.snapshot().transport == .playing {
           self.activateEligibleDirectedConsumer(eventId: eventId, layerId: layerId, action: action)
         } else {
           player.volume = 0
           self.directedEligiblePendingPlay.insert(eventId)
         }
+        startCompletion?(true)
       },
       fail: { [weak self] _ in
-        guard let self else { return }
-        self.cleanupDirectedOpeningConsumer(key)
-        if layer.required {
+        guard let self,
+          self.directedOpeningAttemptIds[key] == attemptId,
+          self.directedRuntimeEpoch == expectedRuntimeEpoch,
+          self.directedOpeningExpectedFences[key] == self.directedScheduler.map({ directedRuntimeFenceV1($0.snapshot()) }) else { return }
+        self.cleanupDirectedOpeningConsumer(key, attemptId: attemptId)
+        if let startCompletion {
+          self.directedActiveEvents.removeValue(forKey: eventId)
+          self.directedActiveActions.removeValue(forKey: eventId)
+          self.directedRuntimeConsumer.didRemove(eventId: eventId)
+          startCompletion(false)
+        } else if layer.required {
           self.directedScheduler?.requiredAssetFailed(layerId)
           self.consumeDirectedActions()
         } else {
           self.directedActiveEvents.removeValue(forKey: eventId)
           self.directedActiveActions.removeValue(forKey: eventId)
+          self.directedRuntimeConsumer.didRemove(eventId: eventId)
         }
       }
     )
@@ -876,10 +997,10 @@ private final class IOSLayeredMediaEngine {
   }
 
   private func scheduleDirectedDetachedVolume(layerId: String, target: Float, durationMs: Double) {
-    guard let layer = layers[layerId] else { return }
+    guard let layer = layers[layerId], let scheduler = directedScheduler else { return }
     if durationMs <= 0 { layer.player.volume = target; if target <= 0 { layer.player.pause() }; return }
-    let token = UUID()
-    let expectedOwner = owner
+    let token = directedRuntimeConsumer.registerCallback(kind: "detached-fade", snapshot: scheduler.snapshot())
+    let expectedFence = directedRuntimeFenceV1(scheduler.snapshot())
     let start = layer.player.volume
     let steps = max(1, Int(ceil(durationMs / 50)))
     var step = 0
@@ -887,8 +1008,10 @@ private final class IOSLayeredMediaEngine {
     source.schedule(deadline: .now(), repeating: max(0.01, durationMs / Double(steps) / 1000), leeway: .milliseconds(10))
     source.setEventHandler { [weak self, weak source, weak player = layer.player] in
       guard let self, let source, let player else { return }
-      guard self.owner.sessionId == expectedOwner.sessionId, self.owner.generationId == expectedOwner.generationId else {
+      guard self.directedRuntimeConsumer.callbackIsCurrent(token, snapshot: self.directedScheduler?.snapshot()),
+        self.directedScheduler.map({ directedRuntimeFenceV1($0.snapshot()) }) == expectedFence else {
         self.directedCallbacks.removeValue(forKey: token)
+        self.directedRuntimeConsumer.completeCallback(token)
         source.setEventHandler {}; source.cancel(); return
       }
       step += 1
@@ -896,6 +1019,7 @@ private final class IOSLayeredMediaEngine {
       player.volume = start + (target - start) * fraction
       if step >= steps {
         self.directedCallbacks.removeValue(forKey: token)
+        self.directedRuntimeConsumer.completeCallback(token)
         source.setEventHandler {}; source.cancel()
         if target <= 0 { player.pause() }
       }
@@ -905,16 +1029,18 @@ private final class IOSLayeredMediaEngine {
   }
 
   private func scheduleDirectedDelayedFade(layerId: String, eventId: String, delayMs: Double, fadeOutMs: Double) {
-    let token = UUID()
-    let expectedOwner = owner
+    guard let scheduler = directedScheduler else { return }
+    let token = directedRuntimeConsumer.registerCallback(kind: "future-fade", snapshot: scheduler.snapshot())
+    let expectedFence = directedRuntimeFenceV1(scheduler.snapshot())
     let source = DispatchSource.makeTimerSource(queue: .main)
     source.schedule(deadline: .now() + max(0.001, delayMs / 1000), leeway: .milliseconds(20))
     source.setEventHandler { [weak self, weak source] in
       guard let self, let source else { return }
       self.directedCallbacks.removeValue(forKey: token)
+      self.directedRuntimeConsumer.completeCallback(token)
       source.setEventHandler {}
       source.cancel()
-      guard self.owner.sessionId == expectedOwner.sessionId, self.owner.generationId == expectedOwner.generationId,
+      guard self.directedScheduler.map({ directedRuntimeFenceV1($0.snapshot()) }) == expectedFence,
         self.directedActiveEvents[eventId] == layerId else { return }
       self.scheduleDirectedVolume(layerId: layerId, eventId: eventId, target: 0, durationMs: fadeOutMs)
     }
@@ -923,10 +1049,10 @@ private final class IOSLayeredMediaEngine {
   }
 
   private func scheduleDirectedVolume(layerId: String, eventId: String, target: Float, durationMs: Double) {
-    guard let layer = layers[layerId] else { return }
+    guard let layer = layers[layerId], let scheduler = directedScheduler else { return }
     if durationMs <= 0 { layer.player.volume = target; return }
-    let token = UUID()
-    let expectedOwner = owner
+    let token = directedRuntimeConsumer.registerCallback(kind: target <= 0 ? "terminal-fade" : "ramp-fade", snapshot: scheduler.snapshot())
+    let expectedFence = directedRuntimeFenceV1(scheduler.snapshot())
     let start = layer.player.volume
     let steps = max(1, Int(ceil(durationMs / 50)))
     var step = 0
@@ -934,9 +1060,11 @@ private final class IOSLayeredMediaEngine {
     source.schedule(deadline: .now(), repeating: max(0.01, durationMs / Double(steps) / 1000), leeway: .milliseconds(10))
     source.setEventHandler { [weak self, weak source, weak player = layer.player] in
       guard let self, let source, let player else { return }
-      guard self.owner.sessionId == expectedOwner.sessionId, self.owner.generationId == expectedOwner.generationId,
+      guard self.directedRuntimeConsumer.callbackIsCurrent(token, snapshot: self.directedScheduler?.snapshot()),
+        self.directedScheduler.map({ directedRuntimeFenceV1($0.snapshot()) }) == expectedFence,
         self.directedActiveEvents[eventId] == layerId else {
         self.directedCallbacks.removeValue(forKey: token)
+        self.directedRuntimeConsumer.completeCallback(token)
         source.setEventHandler {}; source.cancel(); return
       }
       step += 1
@@ -944,11 +1072,13 @@ private final class IOSLayeredMediaEngine {
       player.volume = start + (target - start) * fraction
       if step >= steps {
         self.directedCallbacks.removeValue(forKey: token)
+        self.directedRuntimeConsumer.completeCallback(token)
         source.setEventHandler {}; source.cancel()
         if target <= 0, self.directedActiveEvents[eventId] == layerId {
           player.pause()
           self.directedActiveEvents.removeValue(forKey: eventId)
           self.directedActiveActions.removeValue(forKey: eventId)
+          self.directedRuntimeConsumer.didRemove(eventId: eventId)
         }
       }
     }
@@ -1110,6 +1240,7 @@ private final class IOSLayeredMediaEngine {
       interruptionMayResume = !userPausedOrStopped
       if sessionType == "directed" {
         directedScheduler?.interrupt("transient", userPausedOrStopped: userPausedOrStopped)
+        rebasePendingDirectedRestartOpenings()
         cancelDirectedWake()
       }
       updateNowPlaying(rate: 0)
@@ -1122,6 +1253,7 @@ private final class IOSLayeredMediaEngine {
       if sessionType == "directed", let command = directedSystemCommand("interruption-resume") {
         if directedScheduler?.resumeAfterInterruption(command, osAllows: true) == true {
           adoptDirectedOwner(command, DirectedSchedulerAcknowledgementV1(status: "accepted", operationId: command.owner.operationId, idempotencyKey: command.idempotencyKey, pathRevision: (directedScheduler?.dictionary()["pathRevision"] as? Int) ?? 0, code: nil, message: nil, safeCheckpointWithinMs: 0))
+          rebasePendingDirectedRestartOpenings()
           consumeDirectedActions()
           resumeEligibleDirectedConsumers()
           scheduleDirectedWake()
@@ -1147,6 +1279,7 @@ private final class IOSLayeredMediaEngine {
     stopPositionPublisher()
     layers.values.forEach { $0.player.pause() }
     directedScheduler?.interrupt("route-loss", userPausedOrStopped: true)
+    rebasePendingDirectedRestartOpenings()
     cancelDirectedWake()
     userPausedOrStopped = true
     interruptionMayResume = false
@@ -1472,6 +1605,70 @@ private final class IOSLayeredMediaEngine {
       code: code,
       userInfo: [NSLocalizedDescriptionKey: message]
     )
+  }
+}
+
+extension IOSLayeredMediaEngine: DirectedRestartRuntimeAdapterV1 {
+  var directedAvailableLayerIdsV1: Set<String> { Set(layers.keys) }
+
+  var directedCurrentSnapshotV1: DirectedSchedulerSnapshotV1? {
+    directedScheduler?.snapshot()
+  }
+
+  func preflightDirectedStartV1(_ action: DirectedSchedulerActionV1) throws {
+    guard let layerId = action.layerId, let layer = layers[layerId], action.eventId != nil else {
+      throw DirectedRestartRuntimeErrorV1.unexecutable
+    }
+    if layer.player.currentItem == nil {
+      layer.player.insert(AVPlayerItem(url: layer.sourceURL), after: nil)
+    }
+    guard layer.player.currentItem != nil else { throw DirectedRestartRuntimeErrorV1.unexecutable }
+  }
+
+  func clearDirectedRuntimeForReplacementV1() {
+    cancelDirectedRuntime(clearScheduler: false, clearActiveEvents: true, resetConsumer: false)
+    layers.values.forEach { layer in
+      layer.player.pause()
+      layer.player.volume = 0
+    }
+  }
+
+  func executeDirectedRuntimeActionV1(_ action: DirectedSchedulerActionV1) {
+    executeDirectedAction(action)
+  }
+
+  func executeDirectedRestartStartV1(
+    _ action: DirectedSchedulerActionV1,
+    completion: @escaping (Bool) -> Void
+  ) {
+    guard action.type == .startEvent,
+      let eventId = action.eventId,
+      let layerId = action.layerId,
+      let layer = layers[layerId]
+    else {
+      completion(false)
+      return
+    }
+    beginDirectedOpeningConsumer(
+      eventId: eventId,
+      layerId: layerId,
+      layer: layer,
+      action: action,
+      startCompletion: completion
+    )
+  }
+
+  func cleanupDirectedRuntimeAfterFailureV1() {
+    cancelDirectedRuntime(clearScheduler: false, clearActiveEvents: true, resetConsumer: false)
+    stopPlayers(release: true)
+  }
+
+  func directedRestartRuntimeDidFailV1() {
+    directedScheduler?.schedulerFailed()
+    completed = false
+    completionPositionMillis = nil
+    updateNowPlaying(rate: 0)
+    _ = publish(kind: "directed_restart_transaction_failed", phase: "error")
   }
 }
 

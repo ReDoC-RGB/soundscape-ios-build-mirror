@@ -384,11 +384,11 @@ const playbackTraceDisplayRefreshMillis = 250;
 const playbackTraceEventLoopGapThresholdMillis = 250;
 const sessionReplacementFadeMillis = 120;
 const appIterationInfo = {
-  label: "Alpha 0.16.7",
-  displayLabel: "Alpha 0.16.7 — iOS Long-Background Availability Lifecycle Correction",
-  currentUpdate: "Alpha 0.16.7 — iOS Long-Background Availability Lifecycle Correction",
-  codename: "ios-long-background-availability-lifecycle-correction-v1",
-  fullInternalLabel: "Alpha 0.16.7+ios-long-background-availability-lifecycle-correction-v1",
+  label: "Alpha 0.17.0",
+  displayLabel: "Alpha 0.17.0 — Session Transport and Lifecycle v1",
+  currentUpdate: "Alpha 0.17.0 — Session Transport and Lifecycle v1",
+  codename: "session-transport-lifecycle-v1",
+  fullInternalLabel: "Alpha 0.17.0+session-transport-lifecycle-v1",
   acceptedNativeBaseline: {
     label: "Alpha 0.11.7",
     displayLabel: "Alpha 0.11.7 — Single Preview Selection-Ready Fix",

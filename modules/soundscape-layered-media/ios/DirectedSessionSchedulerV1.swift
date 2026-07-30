@@ -292,7 +292,7 @@ enum DirectedTransportV1: String {
 }
 
 enum DirectedSchedulerActionTypeV1: Equatable {
-  case startEvent, phaseChanged, applyGains, terminalFade, stopAll
+  case startEvent, phaseChanged, restartPhase, applyGains, terminalFade, stopAll
 }
 
 enum DirectedSchedulerErrorV1: Error {
@@ -304,6 +304,21 @@ struct DirectedSteeringCommandV1 {
   let expectedPhaseRevision: Int
   let expectedPathRevision: Int
   let idempotencyKey: String
+  var restartRequestId: String? = nil
+  var expectedPhaseId: String? = nil
+  var expectedTransportGeneration: Int? = nil
+}
+
+struct DirectedRestartCommitV1 {
+  let restartRequestId: String, sessionId: String, phaseId: String
+  let generationId: Int, operationId: Int, phaseIndex: Int, predecessorPhaseRevision: Int
+  let successorPhaseRevision: Int, pathRevision: Int, transportGeneration: Int
+  func dictionary() -> [String: Any] { [
+    "restartRequestId": restartRequestId, "sessionId": sessionId, "generationId": generationId,
+    "operationId": operationId, "phaseIndex": phaseIndex, "phaseId": phaseId,
+    "predecessorPhaseRevision": predecessorPhaseRevision, "successorPhaseRevision": successorPhaseRevision,
+    "pathRevision": pathRevision, "transportGeneration": transportGeneration,
+  ] }
 }
 
 struct DirectedSchedulerAcknowledgementV1 {
@@ -381,6 +396,8 @@ struct DirectedSchedulerSnapshotV1 {
   let endedReason: String?
   let lastAcceptedOperationId: Int
   let lastAcknowledgement: DirectedSchedulerAcknowledgementV1?
+  let transportGeneration: Int
+  let restartCommit: DirectedRestartCommitV1?
 }
 
 struct DirectedSchedulerActionV1 {
@@ -425,6 +442,9 @@ final class DirectedSessionSchedulerV1 {
   private var completionEligible = false
   private var endedReason: String?
   private var interruptionResumeEligible = false
+  private var transportGeneration = 0
+  private var restartCommit: DirectedRestartCommitV1?
+  private var committedRestartRequestIds: Set<String> = []
 
   init(
     definition: DirectedSchedulerDefinitionV1,
@@ -469,6 +489,8 @@ final class DirectedSessionSchedulerV1 {
       transport = .playing
       playingSinceMonotonicMs = monotonicNowMs()
       interruptionResumeEligible = false
+      transportGeneration += 1
+      restartCommit = nil
       let ack = accept(command, status: "accepted")
       synchronize()
       return ack
@@ -483,7 +505,51 @@ final class DirectedSessionSchedulerV1 {
       if transport == .playing { freezePlayedTime() }
       transport = .paused
       interruptionResumeEligible = false
+      transportGeneration += 1
+      restartCommit = nil
       return accept(command, status: "accepted")
+    }
+  }
+
+  func restartCurrentPhase(_ command: DirectedSteeringCommandV1) -> DirectedSchedulerAcknowledgementV1 {
+    locked {
+      synchronize()
+      if let rejected = validate(command) { return rejected }
+      guard [.playing, .paused, .interrupted].contains(transport) else { return reject(command, code: "RESTART_UNAVAILABLE") }
+      guard let requestId = command.restartRequestId, !requestId.isEmpty, requestId.count <= 240 else { return reject(command, code: "INVALID_RESTART_ID") }
+      guard !committedRestartRequestIds.contains(requestId) else { return reject(command, code: "DUPLICATE_RESTART_REQUEST") }
+      guard command.expectedPhaseId == definition.phases[phaseIndex].phaseId else { return reject(command, code: "STALE_PHASE_ID") }
+      guard command.expectedTransportGeneration == transportGeneration else { return reject(command, code: "STALE_TRANSPORT_GENERATION") }
+      let preservedTransport = transport
+      let phaseStartMs = definition.phases[phaseIndex].startMs
+      let predecessorPhaseRevision = phaseRevision
+      let restartAction = DirectedSchedulerActionV1(type: .restartPhase, eventId: nil, layerId: nil, gain: nil,
+        sourceOffsetMs: 0, fadeInMs: 0, fadeOutMs: 0, durationMs: 0, continuous: false, detail: "restart-current-phase")
+      let earlierContinuousEvents = definition.events.filter { $0.continuous && effectiveStartMs($0) < phaseStartMs }
+      let boundaryEvents = definition.events.filter { effectiveStartMs($0) == phaseStartMs }.sorted { $0.eventId < $1.eventId }
+      let replacementActions = (earlierContinuousEvents + boundaryEvents).compactMap(eventAction)
+      var replacementFiredEvents = Set(definition.events.filter { effectiveStartMs($0) < phaseStartMs }.map(\.eventId))
+      replacementFiredEvents.formUnion(boundaryEvents.map(\.eventId))
+      queuedActions = [restartAction] + replacementActions
+      firedEvents = replacementFiredEvents
+      pausedAccumulatedMs = phaseStartMs
+      lastProcessedElapsedMs = phaseStartMs - 0.001
+      terminalFadeQueued = false
+      playingSinceMonotonicMs = preservedTransport == .playing ? monotonicNowMs() : nil
+      transport = preservedTransport
+      interruptionResumeEligible = false
+      completionEligible = false
+      endedReason = nil
+      phaseRevision += 1
+      transportGeneration += 1
+      restartCommit = DirectedRestartCommitV1(restartRequestId: requestId, sessionId: owner.sessionId, phaseId: definition.phases[phaseIndex].phaseId,
+        generationId: owner.generationId, operationId: command.owner.operationId, phaseIndex: phaseIndex,
+        predecessorPhaseRevision: predecessorPhaseRevision, successorPhaseRevision: phaseRevision, pathRevision: pathRevision,
+        transportGeneration: transportGeneration)
+      committedRestartRequestIds.insert(requestId)
+      let acknowledgement = accept(command, status: "accepted")
+      if preservedTransport == .playing { synchronize() }
+      return acknowledgement
     }
   }
 
@@ -495,6 +561,8 @@ final class DirectedSessionSchedulerV1 {
       if wasPlaying { freezePlayedTime() }
       transport = .interrupted
       interruptionResumeEligible = kind == "transient" && wasPlaying && !userPausedOrStopped
+      transportGeneration += 1
+      restartCommit = nil
     }
   }
 
@@ -509,6 +577,8 @@ final class DirectedSessionSchedulerV1 {
       transport = .playing
       playingSinceMonotonicMs = monotonicNowMs()
       interruptionResumeEligible = false
+      transportGeneration += 1
+      restartCommit = nil
       _ = accept(command, status: "accepted")
       return true
     }
@@ -522,6 +592,8 @@ final class DirectedSessionSchedulerV1 {
       transport = .stopped
       completionEligible = false
       endedReason = reason
+      transportGeneration += 1
+      restartCommit = nil
       queueStop(detail: "directed_stopped")
       return accept(command, status: "accepted")
     }
@@ -744,6 +816,8 @@ final class DirectedSessionSchedulerV1 {
         "failureCopyKey": state.transport == .failed ? (state.endedReason ?? "scheduler-failed") : NSNull(),
         "lastAcceptedOperationId": state.lastAcceptedOperationId,
         "lastAcknowledgement": state.lastAcknowledgement.map { $0.dictionary() as Any } ?? NSNull(),
+        "transportGeneration": state.transportGeneration,
+        "restartCommit": state.restartCommit.map { $0.dictionary() as Any } ?? NSNull(),
       ]
     }
   }
@@ -766,7 +840,9 @@ final class DirectedSessionSchedulerV1 {
         .filter { $0.1 > lastProcessedElapsedMs }
         .min { $0.1 < $1.1 }
       let nextEventTime = nextEvent?.1 ?? Double.infinity
-      let finalFadeTime = terminalFadeQueued ? Double.infinity : definition.finalFadeStartMs
+      let finalFadeTime = !terminalFadeQueued && definition.finalFadeStartMs > lastProcessedElapsedMs
+        ? definition.finalFadeStartMs
+        : Double.infinity
       let nextTime = min(min(nextPhaseBoundary, nextEventTime), min(finalFadeTime, definition.durationMs))
       if !nextTime.isFinite || nextTime > target { break }
       if nextTime == definition.durationMs {
@@ -817,6 +893,21 @@ final class DirectedSessionSchedulerV1 {
       }
       break
     }
+    if !terminalFadeQueued && target >= definition.finalFadeStartMs {
+      terminalFadeQueued = true
+      queuedActions.append(DirectedSchedulerActionV1(
+        type: .terminalFade,
+        eventId: nil,
+        layerId: nil,
+        gain: nil,
+        sourceOffsetMs: 0,
+        fadeInMs: 0,
+        fadeOutMs: definition.durationMs - definition.finalFadeStartMs,
+        durationMs: 0,
+        continuous: false,
+        detail: "terminalFade"
+      ))
+    }
     if target >= definition.durationMs && !isTerminal { completeNaturally() }
   }
 
@@ -842,14 +933,18 @@ final class DirectedSessionSchedulerV1 {
 
   private func fire(_ event: DirectedSchedulerEventV1) {
     firedEvents.insert(event.eventId)
-    guard eventEnabled(event) else { return }
+    if let action = eventAction(event) { queuedActions.append(action) }
+  }
+
+  private func eventAction(_ event: DirectedSchedulerEventV1) -> DirectedSchedulerActionV1? {
+    guard eventEnabled(event) else { return nil }
     let resolvedLayer = appliedSteering.textureReplacements[event.layerId] ?? event.layerId
     let trim = manualTrims[resolvedLayer] ?? DirectedManualTrimV1(enabled: true, trimDb: 0)
-    guard trim.enabled || event.required else { return }
+    guard trim.enabled || event.required else { return nil }
     let duration = definition.assets.first(where: { $0.layerId == resolvedLayer })?.durationMs
       ?? definition.assets.first(where: { $0.layerId == event.layerId })?.durationMs
       ?? 0
-    queuedActions.append(DirectedSchedulerActionV1(
+    return DirectedSchedulerActionV1(
       type: .startEvent,
       eventId: event.eventId,
       layerId: resolvedLayer,
@@ -860,7 +955,7 @@ final class DirectedSessionSchedulerV1 {
       durationMs: max(0, duration - event.sourceOffsetMs),
       continuous: event.continuous,
       detail: nil
-    ))
+    )
   }
 
   private func effectiveStartMs(_ event: DirectedSchedulerEventV1) -> Double {
@@ -1029,7 +1124,9 @@ final class DirectedSessionSchedulerV1 {
       completionEligible: completionEligible,
       endedReason: endedReason,
       lastAcceptedOperationId: lastAcceptedOperationId,
-      lastAcknowledgement: lastAcknowledgement
+      lastAcknowledgement: lastAcknowledgement,
+      transportGeneration: transportGeneration,
+      restartCommit: restartCommit
     )
   }
 

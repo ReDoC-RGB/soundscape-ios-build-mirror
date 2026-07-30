@@ -51,6 +51,10 @@ import {
   projectDirectedAvailabilityReconcilingV1,
 } from "./foregroundAvailabilityLifecycleV1";
 import {
+  DirectedTransportLifecycleEpochV1,
+  projectDirectedTransportControlsV1,
+} from "./sessionTransportLifecycleV1";
+import {
   classicComponentTokensV1,
   classicVisualPaletteV1,
   classicVisualThemeV1,
@@ -222,7 +226,7 @@ function DirectedMiniPlayerV1(props: Readonly<{
 }>) {
   const { fontScale, width } = useWindowDimensions();
   const adaptiveTextLayout = resolveAdaptiveTextLayoutV1({ width, fontScale });
-  const pauseLabel = props.state.transport === "playing" ? "Pause" : "Resume";
+  const transportControls = projectDirectedTransportControlsV1(props.state, props.disabled);
   return (
     <View style={[directedStyles.miniPlayer, props.compact ? directedStyles.miniPlayerCompact : null]}>
       <Pressable accessibilityHint="Opens the directed session Player" accessibilityRole="button" onPress={props.onOpen} style={directedStyles.miniSummary}>
@@ -248,7 +252,7 @@ function DirectedMiniPlayerV1(props: Readonly<{
         {props.state.pendingSteering ? <Text style={directedStyles.pendingText}>● Change pending</Text> : null}
         <DirectedProgressV1 state={props.state} compact />
       </Pressable>
-      <DirectedButtonV1 label={pauseLabel} onPress={props.onTransport} secondary disabled={props.disabled} />
+      <DirectedButtonV1 label={transportControls.primaryLabel} onPress={props.onTransport} secondary disabled={!transportControls.primaryEnabled} />
     </View>
   );
 }
@@ -274,6 +278,7 @@ function DirectedPlayerV1(props: Readonly<{
   backLabel: string;
   onBack: () => void;
   onTransport: () => void;
+  onRestartCurrentPhase: () => void;
   onEnd: () => void;
   onSteer: (axis: DirectedSteeringAxisV1) => void;
   onTexture: () => void;
@@ -286,6 +291,7 @@ function DirectedPlayerV1(props: Readonly<{
   const score = getDirectedSceneScoreV1(props.state.sceneId as DirectedSceneIdV1);
   const texturePair = score.texturePairs[0];
   const pendingTexture = props.state.pendingSteering?.axis === "different-texture";
+  const transportControls = projectDirectedTransportControlsV1(props.state, props.sendingControl !== null);
   return (
     <View>
       <DirectedButtonV1 label={props.backLabel} onPress={props.onBack} secondary />
@@ -315,8 +321,9 @@ function DirectedPlayerV1(props: Readonly<{
         />
       ) : null}
       <View style={[directedStyles.transportRow, props.compact ? directedStyles.transportRowCompact : null]}>
-        <DirectedButtonV1 label={props.state.transport === "playing" ? "Pause" : "Resume"} onPress={props.onTransport} disabled={props.sendingControl !== null} />
-        <DirectedButtonV1 label="End session" onPress={props.onEnd} destructive disabled={props.sendingControl !== null} />
+        <DirectedButtonV1 label={transportControls.primaryLabel} onPress={props.onTransport} disabled={!transportControls.primaryEnabled} />
+        <DirectedButtonV1 label="Restart current phase" onPress={props.onRestartCurrentPhase} secondary disabled={!transportControls.restartEnabled} />
+        <DirectedButtonV1 label="End session" onPress={props.onEnd} destructive disabled={!transportControls.endEnabled} />
       </View>
       <Text accessibilityRole="header" style={directedStyles.sectionTitle}>Steering</Text>
       <Text style={directedStyles.body}>Changes apply at the next safe point.</Text>
@@ -358,7 +365,7 @@ function DirectedPlayerV1(props: Readonly<{
         </Pressable>
       </View>
       <View style={directedStyles.listeningStatusPanel}>
-        <Text style={directedStyles.statusRow}>Timer · {formatDirectedTimeV1(remaining)} left · ends with {score.phases.at(-1)?.label}</Text>
+        <Text style={directedStyles.statusRow}>Session remaining · {formatDirectedTimeV1(remaining)} · ends with {score.phases.at(-1)?.label}</Text>
         <Text style={directedStyles.sectionLabel}>Listening profile</Text>
         <View accessibilityRole="radiogroup" style={directedStyles.choiceRow}>
           {(["headphones", "speakers"] as const).map((profile) => (
@@ -648,6 +655,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
   const checkpointProjectionEpochRef = useRef(new DirectedCheckpointProjectionEpochV1());
   const availabilityRequestIdRef = useRef(0);
   const foregroundReconciliationCoordinatorRef = useRef(new DirectedForegroundReconciliationCoordinatorV1());
+  const transportLifecycleEpochRef = useRef(new DirectedTransportLifecycleEpochV1());
   const readinessCoordinator = useMemo(() => createDirectedReadinessCoordinatorV1({
     loadStable: () => directedSessionServiceV1.getStableAvailabilities(DIRECTED_SCENE_IDS_V1),
     probeRemote: canReachRemoteMediaSourceV1,
@@ -708,6 +716,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
   const reconcileForeground = useCallback(async () => {
     const lifecycleEpoch = lifecycleEpochRef.current;
     const checkpointProjectionEpoch = checkpointProjectionEpochRef.current.capture();
+    const transportLifecycleToken = transportLifecycleEpochRef.current.captureLifecycle();
     const requestId = ++availabilityRequestIdRef.current;
     ownerProjectionRequestIdRef.current += 1;
     readinessCoordinator.supersede();
@@ -726,6 +735,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
         || lifecycleEpochRef.current !== lifecycleEpoch
         || availabilityRequestIdRef.current !== requestId
         || !checkpointProjectionEpochRef.current.isCurrent(checkpointProjectionEpoch)
+        || !transportLifecycleEpochRef.current.isLifecycleCurrent(transportLifecycleToken)
       ) return;
       const snapshot = result.value;
       const capability = Object.values(snapshot.availability).some((item) => item.state !== "native-unavailable");
@@ -805,6 +815,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
       if (next === "active") {
         void reconcileForeground();
       } else {
+        transportLifecycleEpochRef.current.supersedeLifecycle();
         ownerProjectionRequestIdRef.current += 1;
         availabilityRequestIdRef.current += 1;
         foregroundReconciliationCoordinatorRef.current.supersede(next === "background" ? "background" : "inactive");
@@ -813,6 +824,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
     });
     return () => {
       mountedRef.current = false;
+      transportLifecycleEpochRef.current.supersedeLifecycle();
       checkpointProjectionEpochRef.current.supersede();
       ownerProjectionRequestIdRef.current += 1;
       availabilityRequestIdRef.current += 1;
@@ -874,6 +886,8 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
   const handleTransport = async () => {
     if (!nativeState) return;
     const lifecycleEpoch = lifecycleEpochRef.current;
+    const transportToken = transportLifecycleEpochRef.current.beginTransportAction();
+    ownerProjectionRequestIdRef.current += 1;
     setBusy(true);
     try {
       const next = await directedSessionServiceV1.dispatchDirectedSession(
@@ -881,15 +895,39 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
         undefined,
         nativeState,
       );
-      if (canSettleUi(lifecycleEpoch, next)) setNativeState(next);
+      if (canSettleUi(lifecycleEpoch, next) && transportLifecycleEpochRef.current.isTransportCurrent(transportToken)) setNativeState(next);
     } catch (error) {
-      if (canSettleUi(lifecycleEpoch)) {
+      if (canSettleUi(lifecycleEpoch) && transportLifecycleEpochRef.current.isTransportCurrent(transportToken)) {
         setMessage(error instanceof Error && error.message === "DIRECTED_RENDERED_OWNER_STALE"
           ? "The Player changed. Its current controls were left unchanged."
           : "That playback control couldn’t be completed. Try again.");
       }
     } finally {
-      if (canSettleUi(lifecycleEpoch)) setBusy(false);
+      if (canSettleUi(lifecycleEpoch) && transportLifecycleEpochRef.current.isTransportCurrent(transportToken)) setBusy(false);
+    }
+  };
+
+  const restartCurrentPhase = async () => {
+    if (!nativeState || !["playing", "paused", "interrupted"].includes(nativeState.transport)) return;
+    const expectedOwner = nativeState;
+    const lifecycleEpoch = lifecycleEpochRef.current;
+    const transportToken = transportLifecycleEpochRef.current.beginTransportAction();
+    ownerProjectionRequestIdRef.current += 1;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const next = await directedSessionServiceV1.restartCurrentDirectedPhase(expectedOwner);
+      if (!canSettleUi(lifecycleEpoch, next) || !transportLifecycleEpochRef.current.isTransportCurrent(transportToken)) return;
+      setNativeState(next);
+      AccessibilityInfo.announceForAccessibility(`${next.phaseLabel} restarted from the beginning.`);
+    } catch (error) {
+      if (canSettleUi(lifecycleEpoch) && transportLifecycleEpochRef.current.isTransportCurrent(transportToken)) {
+        setMessage(error instanceof Error && error.message === "DIRECTED_RENDERED_OWNER_STALE"
+          ? "The Player changed. The current phase was not restarted."
+          : "The current phase couldn’t be restarted. Playback was left unchanged.");
+      }
+    } finally {
+      if (canSettleUi(lifecycleEpoch) && transportLifecycleEpochRef.current.isTransportCurrent(transportToken)) setBusy(false);
     }
   };
 
@@ -900,9 +938,11 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
     { text: "Keep listening", style: "cancel" },
     { text: "End session", style: "destructive", onPress: () => {
       const lifecycleEpoch = lifecycleEpochRef.current;
+      const transportToken = transportLifecycleEpochRef.current.beginTransportAction();
+      ownerProjectionRequestIdRef.current += 1;
       setBusy(true);
       void directedSessionServiceV1.endDirectedSession(expectedOwner).then((ended) => {
-        if (!canSettleUi(lifecycleEpoch)) return;
+        if (!canSettleUi(lifecycleEpoch) || !transportLifecycleEpochRef.current.isTransportCurrent(transportToken)) return;
         if (ended.sessionId !== expectedOwner.sessionId || ended.generationId !== expectedOwner.generationId) return;
         const current = directedSessionServiceV1.currentDirectedSession();
         if (current && (current.sessionId !== expectedOwner.sessionId || current.generationId !== expectedOwner.generationId)) {
@@ -915,8 +955,10 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
         setNativeState(null);
         setScreen("ended");
       }).catch(() => {
-        if (canSettleUi(lifecycleEpoch)) setMessage("The session couldn’t be ended because its playback ownership changed. The current session was left unchanged.");
-      }).finally(() => { if (canSettleUi(lifecycleEpoch)) setBusy(false); });
+        if (canSettleUi(lifecycleEpoch) && transportLifecycleEpochRef.current.isTransportCurrent(transportToken)) setMessage("The session couldn’t be ended because its playback ownership changed. The current session was left unchanged.");
+      }).finally(() => {
+        if (canSettleUi(lifecycleEpoch) && transportLifecycleEpochRef.current.isTransportCurrent(transportToken)) setBusy(false);
+      });
     } },
     ]);
   };
@@ -1244,7 +1286,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
     if (capabilityReady === null) return <View style={directedStyles.center}><ActivityIndicator color={classicVisualThemeV1.accentDeep} /><Text style={directedStyles.body}>Checking this session…</Text></View>;
     if (!capabilityReady) return <View><Text accessibilityRole="alert" style={directedStyles.title}>Sessions are unavailable in this build.</Text><DirectedButtonV1 label="Open Library" onPress={() => setTab("library")} /><DirectedButtonV1 label="Try again" onPress={() => void refreshAvailability()} secondary /></View>;
     if (screen === "detail") return renderDetail();
-    if (screen === "player" && nativeState) return <DirectedPlayerV1 state={nativeState} reduceMotionEnabled={reduceMotionEnabled} compact={compact} sendingControl={sendingControl ?? (busy ? "transport" : null)} backLabel={`Back to ${tab === "sessions" ? "Sessions" : tab === "library" ? "Library" : "Saved"}`} onBack={() => setScreen("root")} onTransport={() => void handleTransport()} onEnd={endSession} onSteer={(axis) => void steer(axis)} onTexture={() => void texture()} onUndo={() => void undo()} onProfile={(next) => void profile(next)} onAdjust={() => setScreen("adjust")} />;
+    if (screen === "player" && nativeState) return <DirectedPlayerV1 state={nativeState} reduceMotionEnabled={reduceMotionEnabled} compact={compact} sendingControl={sendingControl ?? (busy ? "transport" : null)} backLabel={`Back to ${tab === "sessions" ? "Sessions" : tab === "library" ? "Library" : "Saved"}`} onBack={() => setScreen("root")} onTransport={() => void handleTransport()} onRestartCurrentPhase={() => void restartCurrentPhase()} onEnd={endSession} onSteer={(axis) => void steer(axis)} onTexture={() => void texture()} onUndo={() => void undo()} onProfile={(next) => void profile(next)} onAdjust={() => setScreen("adjust")} />;
     if (screen === "adjust" && nativeState) return <DirectedAdjustV1 state={nativeState} busy={sendingControl !== null} onBack={() => setScreen("player")} onTrim={(layerId, trimDb) => void adjustLayer(layerId, { trimDb })} onToggle={(layerId, enabled) => void adjustLayer(layerId, { enabled })} />;
     if (screen === "completion" && nativeState) return <DirectedCompletionV1 state={nativeState} saved={completionSaved} busy={busy} message={message} onReplayPath={() => void replay("path")} onReplayOriginal={() => void replay("original")} onSave={() => { setBusy(true); void directedSessionServiceV1.saveCompletedPath(`${nativeState.title} path`).then((saved) => { setCompletionSaved(true); setMessage("Path saved on this device."); setSavedPaths((current) => [...current, saved]); }).catch(() => setMessage("This path wasn’t saved. Your completed session is unchanged.")).finally(() => setBusy(false)); }} onMore={() => { setScreen("root"); setTab("sessions"); }} onFeedback={(value) => void directedSessionServiceV1.saveFeedback(value).then(() => setMessage("Feedback saved on this device."))} />;
     if (screen === "ended") return <View style={directedStyles.endedCard}><Text accessibilityRole="header" style={directedStyles.title}>Session ended early</Text><Text style={directedStyles.body}>This was not saved as a completed path.</Text><DirectedButtonV1 label="Start over" onPress={() => setScreen("detail")} /><DirectedButtonV1 label="Back to Sessions" onPress={() => { setScreen("root"); setTab("sessions"); }} secondary /></View>;

@@ -60,6 +60,7 @@ import {
 } from "../directedSessions/directedContinuationPolicyV1";
 import { compileNativeDirectedSessionDefinitionV1 } from "../directedSessions/nativeDirectedRequestV1";
 import { directedNativeCurrentnessCodeV1 } from "../directedSessions/directedNativeCurrentnessV1";
+import { createDirectedRestartRequestIdV1, isDirectedRestartCommitCandidateV1 } from "../directedSessions/sessionTransportLifecycleV1";
 
 export const DIRECTED_SESSION_SCHEDULER_VERSION_V1 = 1 as const;
 const DIRECTED_OFFLINE_QUOTA_BYTES = 250 * 1024 * 1024;
@@ -160,6 +161,15 @@ const finiteNativeState = (state: NativeDirectedSessionStateV1 | null): state is
   && Number.isFinite(state.pathRevision),
 );
 
+const validRestartCandidateV1 = (
+  candidate: unknown,
+  predecessor: NativeDirectedSessionStateV1,
+  command: NativeDirectedTransportCommandV1,
+): boolean => {
+  const state = candidate as NativeDirectedSessionStateV1 | null;
+  return finiteNativeState(state) && isDirectedRestartCommitCandidateV1(state, predecessor, command);
+};
+
 const nativeStateToCheckpoint = (native: NativeDirectedSessionStateV1): DirectedSessionStateV1 => {
   return Object.freeze({
     contractVersion: 1,
@@ -254,12 +264,18 @@ export class DirectedSessionServiceV1 {
   private pendingActivationAbortController: AbortController | null = null;
   private foregroundAvailabilityHydrated = false;
   private readonly unresolvedForegroundAssetIds = new Set<string>();
+  private transportActionEpoch = 0;
+  private pendingRestartRequestId: string | null = null;
+  private readonly validatedRestartRequestIds = new Set<string>();
 
   constructor() {
     try {
       this.nativeListenerHandle = NativeMedia.addListener("onNativeMediaEvent", (event) => {
         if (event.sessionType !== "directed" || !finiteNativeState(event.directedSessionState ?? null)) return;
-        void this.acceptNativeState(event.directedSessionState ?? null);
+        const state = event.directedSessionState ?? null;
+        const requestId = state?.restartCommit?.restartRequestId;
+        if (requestId && (requestId === this.pendingRestartRequestId || !this.validatedRestartRequestIds.has(requestId))) return;
+        void this.acceptNativeState(state);
       });
     } catch {
       this.nativeListenerHandle = null;
@@ -784,6 +800,7 @@ export class DirectedSessionServiceV1 {
   }
 
   private async performExplicitEnd(expectedOwner?: DirectedControlOwnerV1): Promise<NativeDirectedSessionStateV1> {
+    this.transportActionEpoch += 1;
     const state = this.requireCurrent(expectedOwner);
     const operationId = state.lastAcceptedOperationId + 1;
     const command: NativeDirectedTransportCommandV1 = {
@@ -830,6 +847,7 @@ export class DirectedSessionServiceV1 {
     endedReason?: NativeDirectedTransportCommandV1["endedReason"],
     expectedOwner?: DirectedControlOwnerV1,
   ): Promise<NativeDirectedSessionStateV1> {
+    this.transportActionEpoch += 1;
     if (expectedOwner) {
       const planned = await this.prepareDirectedControlV1(expectedOwner, type === "pause" ? "pause" : type === "stop" ? "end" : "resume");
       if (planned === "recover-current" || planned === "recover-current-paused") {
@@ -851,6 +869,95 @@ export class DirectedSessionServiceV1 {
     };
     const expectedTransport: NativeDirectedSessionStateV1["transport"] = type === "pause" ? "paused" : type === "stop" ? "stopped" : "playing";
     return this.acceptAcknowledgedNativeState(await NativeMedia.dispatchDirectedSession(command), command, [expectedTransport]);
+  }
+
+  async restartCurrentDirectedPhase(expectedOwner: DirectedControlOwnerV1): Promise<NativeDirectedSessionStateV1> {
+    const settlementEpoch = ++this.transportActionEpoch;
+    const planned = await this.prepareDirectedControlV1(expectedOwner, "restart-current-phase");
+    if (planned !== "dispatch-current") throw new Error("DIRECTED_RESTART_OWNER_UNAVAILABLE");
+    const state = this.requireCurrent(expectedOwner);
+    if (!["playing", "paused", "interrupted"].includes(state.transport)) {
+      throw new Error("DIRECTED_RESTART_TRANSPORT_UNAVAILABLE");
+    }
+    if (!Number.isSafeInteger(state.transportGeneration) || state.transportGeneration < 0) {
+      throw new Error("DIRECTED_RESTART_GENERATION_UNAVAILABLE");
+    }
+    const operationId = state.lastAcceptedOperationId + 1;
+    const restartRequestId = createDirectedRestartRequestIdV1(state.sessionId, state.generationId, operationId);
+    const command: NativeDirectedTransportCommandV1 = {
+      sessionId: state.sessionId,
+      generationId: state.generationId,
+      operationId,
+      expectedPhaseRevision: state.phaseRevision,
+      expectedPathRevision: state.pathRevision,
+      idempotencyKey: `${state.sessionId}:restart-current-phase:${operationId}`,
+      type: "restart-current-phase",
+      restartRequestId,
+      expectedPhaseId: state.phaseId,
+      expectedTransportGeneration: state.transportGeneration,
+    };
+    this.pendingRestartRequestId = restartRequestId;
+    try {
+      const candidate = await NativeMedia.dispatchDirectedSession(command);
+      const stillCurrent = settlementEpoch === this.transportActionEpoch
+        && this.current?.sessionId === state.sessionId && this.current.generationId === state.generationId
+        && this.current.operationId === state.operationId && this.current.phaseRevision === state.phaseRevision
+        && this.current.transportGeneration === state.transportGeneration;
+      if (!stillCurrent || !validRestartCandidateV1(candidate, state, command)) {
+        await this.reconcileCommittedRestartV1(state, command);
+        throw new Error(stillCurrent ? "DIRECTED_RESTART_CONTRACT_MISMATCH" : "DIRECTED_RESTART_SUPERSEDED");
+      }
+      this.validatedRestartRequestIds.add(restartRequestId);
+      const accepted = await this.acceptNativeState(candidate);
+      if (!validRestartCandidateV1(accepted, state, command)) {
+        await this.reconcileCommittedRestartV1(state, command);
+        throw new Error("DIRECTED_RESTART_SUPERSEDED");
+      }
+      return accepted as NativeDirectedSessionStateV1;
+    } finally {
+      if (this.pendingRestartRequestId === restartRequestId) this.pendingRestartRequestId = null;
+    }
+  }
+
+  private async reconcileCommittedRestartV1(
+    predecessor: NativeDirectedSessionStateV1,
+    command: NativeDirectedTransportCommandV1,
+  ): Promise<void> {
+    const authoritative = await NativeMedia.getDirectedSessionState();
+    if (validRestartCandidateV1(authoritative, predecessor, command)) {
+      this.validatedRestartRequestIds.add(command.restartRequestId as string);
+      await this.acceptNativeState(authoritative);
+      return;
+    }
+    if (finiteNativeState(authoritative)
+      && authoritative.sessionId === predecessor.sessionId && authoritative.generationId === predecessor.generationId
+      && authoritative.operationId >= predecessor.operationId && authoritative.restartCommit === null) {
+      await this.acceptNativeState(authoritative);
+      return;
+    }
+    const aggregate = await NativeMedia.queryState();
+    if (aggregate.sessionType === "directed" && aggregate.sessionId === predecessor.sessionId && aggregate.generationId === predecessor.generationId) {
+      const cleanupOperationId = Math.max(command.operationId + 1, aggregate.operationId + 1);
+      for (const expectedPhaseRevision of [predecessor.phaseRevision + 1, predecessor.phaseRevision]) {
+        const cleanup: NativeDirectedTransportCommandV1 = {
+          sessionId: predecessor.sessionId, generationId: predecessor.generationId, operationId: cleanupOperationId,
+          expectedPhaseRevision, expectedPathRevision: predecessor.pathRevision,
+          idempotencyKey: `${predecessor.sessionId}:restart-reconcile-stop:${cleanupOperationId}:${expectedPhaseRevision}`,
+          type: "stop", endedReason: "scheduler-failed",
+        };
+        try {
+          const stopped = await NativeMedia.dispatchDirectedSession(cleanup);
+          if (finiteNativeState(stopped) && stopped.sessionId === cleanup.sessionId && stopped.generationId === cleanup.generationId
+            && stopped.operationId === cleanup.operationId && stopped.transport === "stopped") {
+            await this.acceptNativeState(stopped);
+            return;
+          }
+        } catch {
+          // Try the predecessor revision if the native restart never committed.
+        }
+      }
+    }
+    await this.clearExactLocalOwner(predecessor.sessionId, predecessor.generationId);
   }
 
   async steerDirectedSession(axis: DirectedSteeringAxisV1, level: 0 | 1 | 2): Promise<NativeDirectedSessionStateV1> {
@@ -1142,6 +1249,7 @@ export class DirectedSessionServiceV1 {
 
   private async acceptNativeState(state: NativeDirectedSessionStateV1 | null): Promise<NativeDirectedSessionStateV1 | null> {
     if (!finiteNativeState(state)) return this.current;
+    if (state.restartCommit && !this.validatedRestartRequestIds.has(state.restartCommit.restartRequestId)) return this.current;
     await this.enqueueNativeState(async () => {
       const previous = this.current;
       if (isDirectedProjectionFencedByTerminalEndV1(this.terminalEndFence, state)) return;

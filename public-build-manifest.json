@@ -1,15 +1,15 @@
 {
-  "canonicalPrivateCommit": "d8ee7a3f63fb33771ba86c6ef9570a21e090db06",
+  "canonicalPrivateCommit": "3104aeaa39cbe3818cdc3886da2c9a3a5b24485a",
   "exportedPaths": [
     {
       "path": ".github/workflows/ios-internal.yml",
-      "byteLength": 14187,
-      "sha256": "6ae8de0d18156d6e3a4acb5313afd4ec60fc4c277b09400ed9df185cc65c993f"
+      "byteLength": 14116,
+      "sha256": "005753c82270a4582d837c801d7a28def6fcdeba13180db753d99e4c9aa11b3f"
     },
     {
       "path": "App.tsx",
-      "byteLength": 576940,
-      "sha256": "d0771c3f242e3ed170630df308ae261d7c43964ecf128911f19c8b20d2975390"
+      "byteLength": 576850,
+      "sha256": "9ceaadd6121906ae0f16467f44903180c2de65f21bf69062dfc2279fa8a0aef0"
     },
     {
       "path": "README.md",
@@ -18,13 +18,13 @@
     },
     {
       "path": "app.config.js",
-      "byteLength": 1919,
-      "sha256": "79708c84353f7f8d385e64ffcb50873adcbae3a20870abc6ce390097ecc327bb"
+      "byteLength": 1848,
+      "sha256": "2cce5970670e73a73bb893507c19353c87a7bbaa973a11876ad72b388689b670"
     },
     {
       "path": "app.json",
       "byteLength": 1322,
-      "sha256": "14fabe4ed08f8e70215b65a120b653e85359abd7a81e7c85508a27f826dda3e3"
+      "sha256": "330e8f7469fc80c9d28163d20e84e86c4907503b0f2d686f9b0787a87e7c5faa"
     },
     {
       "path": "assets/icon.png",
@@ -58,8 +58,8 @@
     },
     {
       "path": "modules/soundscape-layered-media/ios/DirectedSessionSchedulerV1.swift",
-      "byteLength": 40178,
-      "sha256": "a1bcad7a96569f61c8d6bfc86939e72a95cd6063d5515154ec7d1703669968e8"
+      "byteLength": 45396,
+      "sha256": "792fd4d53670afa2e218f72f51770d1132e589eb6778403c9addbb8088f7ab3e"
     },
     {
       "path": "modules/soundscape-layered-media/ios/SoundscapeLayeredMedia.podspec",
@@ -68,13 +68,13 @@
     },
     {
       "path": "modules/soundscape-layered-media/ios/SoundscapeLayeredMediaModule.swift",
-      "byteLength": 62328,
-      "sha256": "c3b6ad5da85f72aa1965d0a16ec62e7fdf77a54c3fd7e05415f2a1e4088302de"
+      "byteLength": 73441,
+      "sha256": "09509f3a116efe6ef073461a25a0403249a3d3e9dd65dfc4b0e4627f41e8b13e"
     },
     {
       "path": "modules/soundscape-layered-media/src/SoundscapeLayeredMedia.types.ts",
-      "byteLength": 10283,
-      "sha256": "7d2c39c518a9abfefa7112ad1838e02ef7b559f2ff6c3170faa582897c5a181f"
+      "byteLength": 10804,
+      "sha256": "b4fa5f8001b5cdf6674419f16ca43942c76f37fa80f6a0eed0f789251f3ccfb5"
     },
     {
       "path": "modules/soundscape-layered-media/src/SoundscapeLayeredMediaModule.ts",
@@ -268,8 +268,8 @@
     },
     {
       "path": "src/directedSessions/DirectedSessionsExperienceV1.tsx",
-      "byteLength": 93019,
-      "sha256": "73f8011118ddf629d94cce51e18e995e99d22ecfb62a8165d4afa75a5f8de4ee"
+      "byteLength": 95981,
+      "sha256": "e5b79ba2b4307e59daf2797d91a12bdf137b67e07ed335c74a60b2a22967e8e1"
     },
     {
       "path": "src/directedSessions/directedContentEvidenceV1.ts",
@@ -288,8 +288,8 @@
     },
     {
       "path": "src/directedSessions/directedSessionControlPolicyV1.ts",
-      "byteLength": 2393,
-      "sha256": "f79b6f7249bc1331a8b3c7900294806bf8b9f44ff3ebc9d88c3a63e332969e65"
+      "byteLength": 2515,
+      "sha256": "a9b553158a90a24198d8d62d5304c7de42a51473429a58660381316d2e24ce42"
     },
     {
       "path": "src/directedSessions/eligibilityV1.ts",
@@ -330,6 +330,11 @@
       "path": "src/directedSessions/sessionStateV1.ts",
       "byteLength": 22370,
       "sha256": "1cf57a361a38e6c42e65147f958bd5bfef7fe29e60d7beeac7da35ed3e7e420f"
+    },
+    {
+      "path": "src/directedSessions/sessionTransportLifecycleV1.ts",
+      "byteLength": 12056,
+      "sha256": "12d03e2feaa6ad9a05a333dede309b13732000bdbab0acec7f54cd7d4a2ae16b"
     },
     {
       "path": "src/generatedRecipeTransfer.ts",
@@ -473,8 +478,8 @@
     },
     {
       "path": "src/services/directedSessionServiceV1.ts",
-      "byteLength": 61216,
-      "sha256": "5b0f8d4bd98eea4bf8ee6e0e1d2ff21d42038f1a7145b95b03766232b31de9ff"
+      "byteLength": 67198,
+      "sha256": "f25c7225ada0fe144ebf49212afc22f35a6d98030100c04f645cc8de4af67cc6"
     },
     {
       "path": "src/services/evidencePersistenceV1.ts",

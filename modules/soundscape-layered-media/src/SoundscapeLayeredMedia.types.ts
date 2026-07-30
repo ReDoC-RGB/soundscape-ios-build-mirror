@@ -148,8 +148,24 @@ export type NativeDirectedTransportCommandV1 = NativeOwnership & {
   expectedPhaseRevision: number;
   expectedPathRevision: number;
   idempotencyKey: string;
-  type: 'play' | 'pause' | 'resume' | 'stop';
+  type: 'play' | 'pause' | 'resume' | 'restart-current-phase' | 'stop';
   endedReason?: 'user-ended' | 'required-asset-failed' | 'scheduler-failed';
+  restartRequestId?: string;
+  expectedPhaseId?: string;
+  expectedTransportGeneration?: number;
+};
+
+export type NativeDirectedRestartCommitV1 = {
+  restartRequestId: string;
+  sessionId: string;
+  generationId: number;
+  operationId: number;
+  phaseIndex: number;
+  phaseId: string;
+  predecessorPhaseRevision: number;
+  successorPhaseRevision: number;
+  pathRevision: number;
+  transportGeneration: number;
 };
 
 export type NativeDirectedSteeringCommandV1 = NativeOwnership & {
@@ -258,6 +274,8 @@ export type NativeDirectedSessionStateV1 = NativeOwnership & {
   endedReason: string | null;
   failureCopyKey: string | null;
   completionEligible: boolean;
+  transportGeneration: number;
+  restartCommit: NativeDirectedRestartCommitV1 | null;
 };
 
 export type NativeAggregateState = NativeOwnership & {

@@ -1,9 +1,9 @@
 const UNBOUND_SOURCE_COMMIT = "0000000000000000000000000000000000000000";
 const RELEASE = Object.freeze({
-  label: "Alpha 0.16.7",
-  displayLabel: "Alpha 0.16.7 — iOS Long-Background Availability Lifecycle Correction",
-  codename: "ios-long-background-availability-lifecycle-correction-v1",
-  internalLabel: "Alpha 0.16.7+ios-long-background-availability-lifecycle-correction-v1",
+  label: "Alpha 0.17.0",
+  displayLabel: "Alpha 0.17.0 — Session Transport and Lifecycle v1",
+  codename: "session-transport-lifecycle-v1",
+  internalLabel: "Alpha 0.17.0+session-transport-lifecycle-v1",
 });
 
 module.exports = ({ config }) => {
