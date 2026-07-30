@@ -1,5 +1,5 @@
 {
-  "canonicalPrivateCommit": "3104aeaa39cbe3818cdc3886da2c9a3a5b24485a",
+  "canonicalPrivateCommit": "c35b92e9254ab4d94b725a8cf288e5fcbd4fe957",
   "exportedPaths": [
     {
       "path": ".github/workflows/ios-internal.yml",
@@ -55,6 +55,16 @@
       "path": "modules/soundscape-layered-media/ios/DirectedOpeningConsumerCoordinatorV1.swift",
       "byteLength": 3029,
       "sha256": "969f3a262e0697d7ca908be76266ba17309d94824a62f617f6480e197c267455"
+    },
+    {
+      "path": "modules/soundscape-layered-media/ios/DirectedRestartRuntimeConsumerV1.swift",
+      "byteLength": 11474,
+      "sha256": "7dd918fa506b00839677d8e5b7acee7a7b2f254e73fe7899480f9ee9c3ac0dbe"
+    },
+    {
+      "path": "modules/soundscape-layered-media/ios/DirectedRestartRuntimeTransactionV1.swift",
+      "byteLength": 3838,
+      "sha256": "9e7148184145728d3fea05c56575afc6fa489b79ee64fa10bac46b4b6259e7d7"
     },
     {
       "path": "modules/soundscape-layered-media/ios/DirectedSessionSchedulerV1.swift",
