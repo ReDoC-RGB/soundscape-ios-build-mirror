@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   Alert,
   AppState,
+  findNodeHandle,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -79,6 +80,7 @@ import {
 export type DirectedClassicRouteV1 = "fast-start" | "browse" | "presets" | "player" | "saved-mixes" | "saved-sounds" | "settings";
 export type DirectedTabV1 = "sessions" | "library" | "saved";
 type DirectedScreenV1 = "root" | "detail" | "player" | "adjust" | "completion" | "ended" | "failure";
+type DirectedHeadingRefV1 = React.RefObject<React.ElementRef<typeof Text> | null>;
 type DirectedRemoteFreshnessUiV1 = "idle" | "checking" | DirectedRemoteFreshnessStatusV1;
 
 export const directedNavigationV1: readonly Readonly<{ key: DirectedTabV1; label: string }>[] = [
@@ -115,6 +117,7 @@ function DirectedButtonV1(props: Readonly<{
   secondary?: boolean;
   destructive?: boolean;
   accessibilityHint?: string;
+  busy?: boolean;
 }>) {
   const { fontScale, width } = useWindowDimensions();
   const adaptiveTextLayout = resolveAdaptiveTextLayoutV1({ width, fontScale });
@@ -122,7 +125,7 @@ function DirectedButtonV1(props: Readonly<{
     <Pressable
       accessibilityHint={props.accessibilityHint}
       accessibilityRole="button"
-      accessibilityState={{ disabled: props.disabled, selected: props.selected }}
+      accessibilityState={{ busy: props.busy, disabled: props.disabled, selected: props.selected }}
       disabled={props.disabled}
       onPress={props.onPress}
       style={({ pressed }) => [
@@ -229,30 +232,32 @@ function DirectedMiniPlayerV1(props: Readonly<{
   const transportControls = projectDirectedTransportControlsV1(props.state, props.disabled);
   return (
     <View style={[directedStyles.miniPlayer, props.compact ? directedStyles.miniPlayerCompact : null]}>
-      <Pressable accessibilityHint="Opens the directed session Player" accessibilityRole="button" onPress={props.onOpen} style={directedStyles.miniSummary}>
-        <Text
-          android_hyphenationFrequency="none"
-          lineBreakStrategyIOS="standard"
-          numberOfLines={adaptiveTextLayout.allowConstrainedSingleLine ? 1 : undefined}
-          style={directedStyles.miniTitle}
-          textBreakStrategy="balanced"
-        >
-          {props.state.title}
-        </Text>
-        <Text
-          accessibilityLiveRegion="polite"
-          android_hyphenationFrequency="none"
-          lineBreakStrategyIOS="standard"
-          numberOfLines={adaptiveTextLayout.allowConstrainedSingleLine ? 1 : undefined}
-          style={directedStyles.miniPhase}
-          textBreakStrategy="balanced"
-        >
-          {props.state.phaseLabel}
-        </Text>
-        {props.state.pendingSteering ? <Text style={directedStyles.pendingText}>● Change pending</Text> : null}
+      <View style={directedStyles.miniSummary}>
+        <Pressable accessibilityHint="Opens the directed session Player" accessibilityRole="button" onPress={props.onOpen} style={directedStyles.miniSummaryOpen}>
+          <Text
+            android_hyphenationFrequency="none"
+            lineBreakStrategyIOS="standard"
+            numberOfLines={adaptiveTextLayout.allowConstrainedSingleLine ? 1 : undefined}
+            style={directedStyles.miniTitle}
+            textBreakStrategy="balanced"
+          >
+            {props.state.title}
+          </Text>
+          <Text
+            accessibilityLiveRegion="polite"
+            android_hyphenationFrequency="none"
+            lineBreakStrategyIOS="standard"
+            numberOfLines={adaptiveTextLayout.allowConstrainedSingleLine ? 1 : undefined}
+            style={directedStyles.miniPhase}
+            textBreakStrategy="balanced"
+          >
+            {props.state.phaseLabel}
+          </Text>
+          {props.state.pendingSteering ? <Text style={directedStyles.pendingText}>● Change pending</Text> : null}
+        </Pressable>
         <DirectedProgressV1 state={props.state} compact />
-      </Pressable>
-      <DirectedButtonV1 label={transportControls.primaryLabel} onPress={props.onTransport} secondary disabled={!transportControls.primaryEnabled} />
+      </View>
+      <DirectedButtonV1 label={transportControls.primaryLabel} onPress={props.onTransport} busy={props.disabled} secondary disabled={!transportControls.primaryEnabled} />
     </View>
   );
 }
@@ -272,6 +277,7 @@ function steeringMessage(state: NativeDirectedSessionStateV1): string | null {
 
 function DirectedPlayerV1(props: Readonly<{
   state: NativeDirectedSessionStateV1;
+  surfaceHeadingRef: DirectedHeadingRefV1;
   reduceMotionEnabled: boolean;
   compact: boolean;
   sendingControl: string | null;
@@ -298,7 +304,7 @@ function DirectedPlayerV1(props: Readonly<{
       <View style={directedStyles.playerCard}>
         <AtmosphericSceneV1 sceneId={props.state.sceneId as DirectedSceneIdV1} phaseIndex={props.state.phaseIndex} reduceMotionEnabled={props.reduceMotionEnabled} />
         <Text style={directedStyles.eyebrow}>Now playing · {props.state.title}</Text>
-        <Text accessibilityLiveRegion="polite" accessibilityRole="header" style={directedStyles.phaseTitle}>{props.state.phaseLabel}</Text>
+        <Text ref={props.surfaceHeadingRef} accessibilityLiveRegion="polite" accessibilityRole="header" style={directedStyles.phaseTitle}>{props.state.phaseLabel}</Text>
         <Text style={directedStyles.nextCopy}>{props.state.nextPhaseLabel ? `Next · ${props.state.nextPhaseLabel}` : "Final phase"}</Text>
         <View style={[
           directedStyles.progressCopyRow,
@@ -321,9 +327,9 @@ function DirectedPlayerV1(props: Readonly<{
         />
       ) : null}
       <View style={[directedStyles.transportRow, props.compact ? directedStyles.transportRowCompact : null]}>
-        <DirectedButtonV1 label={transportControls.primaryLabel} onPress={props.onTransport} disabled={!transportControls.primaryEnabled} />
-        <DirectedButtonV1 label="Restart current phase" onPress={props.onRestartCurrentPhase} secondary disabled={!transportControls.restartEnabled} />
-        <DirectedButtonV1 label="End session" onPress={props.onEnd} destructive disabled={!transportControls.endEnabled} />
+        <DirectedButtonV1 label={transportControls.primaryLabel} onPress={props.onTransport} busy={props.sendingControl === "transport"} disabled={!transportControls.primaryEnabled} />
+        <DirectedButtonV1 label="Restart current phase" onPress={props.onRestartCurrentPhase} busy={props.sendingControl === "transport"} secondary disabled={!transportControls.restartEnabled} />
+        <DirectedButtonV1 label="End session" onPress={props.onEnd} busy={props.sendingControl === "transport"} destructive disabled={!transportControls.endEnabled} />
       </View>
       <Text accessibilityRole="header" style={directedStyles.sectionTitle}>Steering</Text>
       <Text style={directedStyles.body}>Changes apply at the next safe point.</Text>
@@ -389,6 +395,7 @@ function DirectedPlayerV1(props: Readonly<{
 
 function DirectedCompletionV1(props: Readonly<{
   state: NativeDirectedSessionStateV1;
+  surfaceHeadingRef: DirectedHeadingRefV1;
   saved: boolean;
   busy: boolean;
   message: string | null;
@@ -400,7 +407,7 @@ function DirectedCompletionV1(props: Readonly<{
 }>) {
   return (
     <View>
-      <Text accessibilityLiveRegion="polite" accessibilityRole="header" style={directedStyles.title}>Session complete.</Text>
+      <Text ref={props.surfaceHeadingRef} accessibilityLiveRegion="polite" accessibilityRole="header" style={directedStyles.title}>Session complete.</Text>
       <Text style={directedStyles.body}>{props.state.title} · {formatDirectedTimeV1(props.state.durationMs)} · full session.</Text>
       <Text style={directedStyles.sectionTitle}>Your path.</Text>
       <Text style={directedStyles.statusBanner}>{props.state.pathHistory.length ? `${props.state.pathHistory.length} steering change${props.state.pathHistory.length === 1 ? "" : "s"} shaped this path.` : "Original authored path."}</Text>
@@ -410,7 +417,7 @@ function DirectedCompletionV1(props: Readonly<{
       <DirectedButtonV1 label="More like this" onPress={props.onMore} disabled={props.busy} secondary />
       {props.message ? <Text accessibilityLiveRegion="polite" style={directedStyles.statusBanner}>{props.message}</Text> : null}
       <Text style={directedStyles.sectionLabel}>How did this path feel?</Text>
-      <View accessibilityRole="radiogroup" style={directedStyles.feedbackRow}>
+      <View style={directedStyles.feedbackRow}>
         <DirectedButtonV1 label="Too busy" onPress={() => props.onFeedback("too-busy")} secondary />
         <DirectedButtonV1 label="Just right" onPress={() => props.onFeedback("just-right")} secondary />
         <DirectedButtonV1 label="Too sparse" onPress={() => props.onFeedback("too-sparse")} secondary />
@@ -422,6 +429,7 @@ function DirectedCompletionV1(props: Readonly<{
 
 function DirectedAdjustV1(props: Readonly<{
   state: NativeDirectedSessionStateV1;
+  surfaceHeadingRef: DirectedHeadingRefV1;
   busy: boolean;
   onBack: () => void;
   onTrim: (layerId: string, trimDb: -3 | 0 | 3) => void;
@@ -430,7 +438,7 @@ function DirectedAdjustV1(props: Readonly<{
   const score = getDirectedSceneScoreV1(props.state.sceneId as DirectedSceneIdV1);
   return (
     <View>
-      <Text accessibilityRole="header" style={directedStyles.title}>Adjust this session</Text>
+      <Text ref={props.surfaceHeadingRef} accessibilityRole="header" style={directedStyles.title}>Adjust this session</Text>
       <Text style={directedStyles.body}>The current phase keeps playing. Adjustments use a safe 300 ms envelope and cannot change timing.</Text>
       {score.assets.map((asset) => {
         const layerId = `directed:${asset.assetId}`;
@@ -838,6 +846,18 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
     };
   }, [reconcileForeground, readinessCoordinator]);
 
+  const surfaceHeadingRef = useRef<React.ElementRef<typeof Text> | null>(null);
+  const placeSurfaceFocus = useCallback(() => {
+    const node = findNodeHandle(surfaceHeadingRef.current);
+    if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
+  }, []);
+
+  useEffect(() => {
+    if (capabilityReady === null) return;
+    const focusTimer = setTimeout(placeSurfaceFocus, 0);
+    return () => clearTimeout(focusTimer);
+  }, [capabilityReady, directedAppState, placeSurfaceFocus, screen, tab]);
+
   useEffect(() => {
     if (!shouldRunDirectedForegroundProjectionV1(directedAppState, nativeState)) return;
     void projectCurrentFromNative();
@@ -895,7 +915,10 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
         undefined,
         nativeState,
       );
-      if (canSettleUi(lifecycleEpoch, next) && transportLifecycleEpochRef.current.isTransportCurrent(transportToken)) setNativeState(next);
+      if (canSettleUi(lifecycleEpoch, next) && transportLifecycleEpochRef.current.isTransportCurrent(transportToken)) {
+        setNativeState(next);
+        AccessibilityInfo.announceForAccessibility(next.transport === "paused" ? "Session paused." : "Session resumed.");
+      }
     } catch (error) {
       if (canSettleUi(lifecycleEpoch) && transportLifecycleEpochRef.current.isTransportCurrent(transportToken)) {
         setMessage(error instanceof Error && error.message === "DIRECTED_RENDERED_OWNER_STALE"
@@ -1093,7 +1116,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
 
   const renderSessions = () => (
     <View>
-      <Text accessibilityRole="header" style={directedStyles.title}>Directed Sessions</Text>
+      <Text ref={surfaceHeadingRef} accessibilityRole="header" style={directedStyles.title}>Directed Sessions</Text>
       <Text style={directedStyles.body}>Choose an authored sound path.</Text>
       {nativeState && ["playing", "paused", "interrupted"].includes(nativeState.transport) ? (
         <View style={directedStyles.continueCard}>
@@ -1109,6 +1132,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
           <Text style={directedStyles.body}>{checkpoint.phaseLabel} · Restart from this phase with verified sources.</Text>
           <DirectedButtonV1
             label={busy ? "Restarting…" : "Restart current phase"}
+            busy={busy}
             disabled={busy}
             onPress={() => void start({
               sceneId: checkpoint.sceneId,
@@ -1152,7 +1176,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
 
   const renderLibrary = () => (
     <View>
-      <Text accessibilityRole="header" style={directedStyles.title}>Library</Text>
+      <Text ref={surfaceHeadingRef} accessibilityRole="header" style={directedStyles.title}>Library</Text>
       <Text style={directedStyles.body}>Classic sounds and static mixes remain available here.</Text>
       <View style={directedStyles.gatewayCard}>
         <Text style={directedStyles.sectionTitle}>Choose how to listen</Text>
@@ -1175,7 +1199,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
 
   const renderSaved = () => (
     <View>
-      <Text accessibilityRole="header" style={directedStyles.title}>Saved</Text>
+      <Text ref={surfaceHeadingRef} accessibilityRole="header" style={directedStyles.title}>Saved</Text>
       <Text style={directedStyles.sectionTitle}>Session paths</Text>
       {!savedPaths.length ? <Text style={directedStyles.body}>Completed paths you save will appear here.</Text> : null}
       {savedPaths.map((path) => (
@@ -1241,7 +1265,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
         <DirectedButtonV1 label="Back" onPress={() => setScreen("root")} secondary />
         <View style={directedStyles.detailCard}>
           <AtmosphericSceneV1 sceneId={selectedSceneId} phaseIndex={0} reduceMotionEnabled={reduceMotionEnabled} />
-          <Text accessibilityRole="header" style={directedStyles.title}>{selectedScore.title}</Text>
+          <Text ref={surfaceHeadingRef} accessibilityRole="header" style={directedStyles.title}>{selectedScore.title}</Text>
           <Text style={directedStyles.cardTrajectory}>{selectedVariant.trajectory}</Text>
           <Text style={directedStyles.meta}>{Math.round(selectedScore.durationMs / 60_000)} min · No voice · {transportAvailability}</Text>
           <View style={directedStyles.sessionPathCard}>
@@ -1270,6 +1294,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
             <DirectedButtonV1
               label={activeSceneSelected ? "Open Player" : busy ? "Starting…" : selectedVariant.blocked || !available.startable ? "Start unavailable" : "Start session"}
               onPress={() => activeSceneSelected ? setScreen("player") : void start({ sceneId: selectedSceneId, outputProfile, hardAvoidanceIds: selectedAvoidances, allowRemote: true })}
+              busy={busy}
               disabled={busy || (!activeSceneSelected && (selectedVariant.blocked || !available.startable))}
             />
             {downloadActionLabel ? <DirectedButtonV1 label={downloadActionLabel} onPress={() => { void downloadPackageForScene(selectedSceneId); }} secondary /> : null}
@@ -1283,14 +1308,14 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
   };
 
   const content = (() => {
-    if (capabilityReady === null) return <View style={directedStyles.center}><ActivityIndicator color={classicVisualThemeV1.accentDeep} /><Text style={directedStyles.body}>Checking this session…</Text></View>;
-    if (!capabilityReady) return <View><Text accessibilityRole="alert" style={directedStyles.title}>Sessions are unavailable in this build.</Text><DirectedButtonV1 label="Open Library" onPress={() => setTab("library")} /><DirectedButtonV1 label="Try again" onPress={() => void refreshAvailability()} secondary /></View>;
+    if (capabilityReady === null) return <View accessibilityLabel="Checking this session availability" accessibilityState={{ busy: true }} accessible style={directedStyles.center}><ActivityIndicator color={classicVisualThemeV1.accentDeep} /><Text style={directedStyles.body}>Checking this session…</Text></View>;
+    if (!capabilityReady) return <View><Text ref={surfaceHeadingRef} accessibilityRole="alert" style={directedStyles.title}>Sessions are unavailable in this build.</Text><DirectedButtonV1 label="Open Library" onPress={() => setTab("library")} /><DirectedButtonV1 label="Try again" onPress={() => void refreshAvailability()} secondary /></View>;
     if (screen === "detail") return renderDetail();
-    if (screen === "player" && nativeState) return <DirectedPlayerV1 state={nativeState} reduceMotionEnabled={reduceMotionEnabled} compact={compact} sendingControl={sendingControl ?? (busy ? "transport" : null)} backLabel={`Back to ${tab === "sessions" ? "Sessions" : tab === "library" ? "Library" : "Saved"}`} onBack={() => setScreen("root")} onTransport={() => void handleTransport()} onRestartCurrentPhase={() => void restartCurrentPhase()} onEnd={endSession} onSteer={(axis) => void steer(axis)} onTexture={() => void texture()} onUndo={() => void undo()} onProfile={(next) => void profile(next)} onAdjust={() => setScreen("adjust")} />;
-    if (screen === "adjust" && nativeState) return <DirectedAdjustV1 state={nativeState} busy={sendingControl !== null} onBack={() => setScreen("player")} onTrim={(layerId, trimDb) => void adjustLayer(layerId, { trimDb })} onToggle={(layerId, enabled) => void adjustLayer(layerId, { enabled })} />;
-    if (screen === "completion" && nativeState) return <DirectedCompletionV1 state={nativeState} saved={completionSaved} busy={busy} message={message} onReplayPath={() => void replay("path")} onReplayOriginal={() => void replay("original")} onSave={() => { setBusy(true); void directedSessionServiceV1.saveCompletedPath(`${nativeState.title} path`).then((saved) => { setCompletionSaved(true); setMessage("Path saved on this device."); setSavedPaths((current) => [...current, saved]); }).catch(() => setMessage("This path wasn’t saved. Your completed session is unchanged.")).finally(() => setBusy(false)); }} onMore={() => { setScreen("root"); setTab("sessions"); }} onFeedback={(value) => void directedSessionServiceV1.saveFeedback(value).then(() => setMessage("Feedback saved on this device."))} />;
-    if (screen === "ended") return <View style={directedStyles.endedCard}><Text accessibilityRole="header" style={directedStyles.title}>Session ended early</Text><Text style={directedStyles.body}>This was not saved as a completed path.</Text><DirectedButtonV1 label="Start over" onPress={() => setScreen("detail")} /><DirectedButtonV1 label="Back to Sessions" onPress={() => { setScreen("root"); setTab("sessions"); }} secondary /></View>;
-    if (screen === "failure") return <View><Text accessibilityLiveRegion="assertive" accessibilityRole="alert" style={directedStyles.title}>The session stopped because a sound became unavailable.</Text><Text style={directedStyles.body}>No completion was recorded.</Text><DirectedButtonV1 label="Retry" onPress={() => setScreen("detail")} /><DirectedButtonV1 label="Back to Sessions" onPress={() => { setScreen("root"); setTab("sessions"); }} secondary /></View>;
+    if (screen === "player" && nativeState) return <DirectedPlayerV1 state={nativeState} surfaceHeadingRef={surfaceHeadingRef} reduceMotionEnabled={reduceMotionEnabled} compact={compact} sendingControl={sendingControl ?? (busy ? "transport" : null)} backLabel={`Back to ${tab === "sessions" ? "Sessions" : tab === "library" ? "Library" : "Saved"}`} onBack={() => setScreen("root")} onTransport={() => void handleTransport()} onRestartCurrentPhase={() => void restartCurrentPhase()} onEnd={endSession} onSteer={(axis) => void steer(axis)} onTexture={() => void texture()} onUndo={() => void undo()} onProfile={(next) => void profile(next)} onAdjust={() => setScreen("adjust")} />;
+    if (screen === "adjust" && nativeState) return <DirectedAdjustV1 state={nativeState} surfaceHeadingRef={surfaceHeadingRef} busy={sendingControl !== null} onBack={() => setScreen("player")} onTrim={(layerId, trimDb) => void adjustLayer(layerId, { trimDb })} onToggle={(layerId, enabled) => void adjustLayer(layerId, { enabled })} />;
+    if (screen === "completion" && nativeState) return <DirectedCompletionV1 state={nativeState} surfaceHeadingRef={surfaceHeadingRef} saved={completionSaved} busy={busy} message={message} onReplayPath={() => void replay("path")} onReplayOriginal={() => void replay("original")} onSave={() => { setBusy(true); void directedSessionServiceV1.saveCompletedPath(`${nativeState.title} path`).then((saved) => { setCompletionSaved(true); setMessage("Path saved on this device."); setSavedPaths((current) => [...current, saved]); }).catch(() => setMessage("This path wasn’t saved. Your completed session is unchanged.")).finally(() => setBusy(false)); }} onMore={() => { setScreen("root"); setTab("sessions"); }} onFeedback={(value) => void directedSessionServiceV1.saveFeedback(value).then(() => setMessage("Feedback saved on this device."))} />;
+    if (screen === "ended") return <View style={directedStyles.endedCard}><Text ref={surfaceHeadingRef} accessibilityRole="header" style={directedStyles.title}>Session ended early</Text><Text style={directedStyles.body}>This was not saved as a completed path.</Text><DirectedButtonV1 label="Start over" onPress={() => setScreen("detail")} /><DirectedButtonV1 label="Back to Sessions" onPress={() => { setScreen("root"); setTab("sessions"); }} secondary /></View>;
+    if (screen === "failure") return <View><Text ref={surfaceHeadingRef} accessibilityLiveRegion="assertive" accessibilityRole="alert" style={directedStyles.title}>The session stopped because a sound became unavailable.</Text><Text style={directedStyles.body}>No completion was recorded.</Text><DirectedButtonV1 label="Retry" onPress={() => setScreen("detail")} /><DirectedButtonV1 label="Back to Sessions" onPress={() => { setScreen("root"); setTab("sessions"); }} secondary /></View>;
     const rootContent = tab === "sessions" ? renderSessions() : tab === "library" ? renderLibrary() : renderSaved();
     return <View>{rootContent}{message ? <Text accessibilityLiveRegion="assertive" accessibilityRole="alert" style={directedStyles.warning}>{message}</Text> : null}</View>;
   })();
@@ -1463,8 +1488,8 @@ const directedStyles = StyleSheet.create({
   topBar: { minHeight: classicComponentTokensV1.controlMinHeight, paddingHorizontal: classicComponentTokensV1.cardPadding, paddingVertical: classicComponentTokensV1.spacing.xs, marginHorizontal: classicComponentTokensV1.sectionPadding, marginTop: classicComponentTokensV1.spacing.xs, backgroundColor: classicVisualThemeV1.elevated, borderRadius: classicComponentTokensV1.radius.card, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: classicComponentTokensV1.spacing.sm },
   topBarStacked: { alignItems: "stretch", flexDirection: "column" },
   brand: { color: classicVisualThemeV1.text, fontSize: 28, lineHeight: 34, fontWeight: "900", flexShrink: 1 },
-  headerSettings: { minHeight: classicComponentTokensV1.controlMinHeight, minWidth: classicComponentTokensV1.controlMinHeight, paddingHorizontal: 12, paddingVertical: 6, borderRadius: classicComponentTokensV1.radius.chip, borderWidth: 1, borderColor: classicVisualThemeV1.accentDeep, backgroundColor: classicVisualThemeV1.elevated, alignItems: "center", justifyContent: "center" },
-  headerSettingsText: { color: classicVisualThemeV1.accentSeaGlass, fontSize: 13, lineHeight: 18, fontWeight: "900" },
+  headerSettings: { minHeight: classicComponentTokensV1.controlMinHeight, minWidth: classicComponentTokensV1.controlMinHeight, paddingHorizontal: 12, paddingVertical: 6, borderRadius: classicComponentTokensV1.radius.chip, borderWidth: 1, borderColor: classicVisualPaletteV1.darkEarth, backgroundColor: classicVisualThemeV1.elevated, alignItems: "center", justifyContent: "center" },
+  headerSettingsText: { color: classicVisualPaletteV1.darkEarth, fontSize: 13, lineHeight: 18, fontWeight: "900" },
   content: { padding: classicComponentTokensV1.sectionPadding, paddingBottom: 28, gap: classicComponentTokensV1.spacing.md },
   contentAccessibility: { paddingHorizontal: 10 },
   center: { minHeight: 280, alignItems: "center", justifyContent: "center", gap: 12 },
@@ -1473,15 +1498,15 @@ const directedStyles = StyleSheet.create({
   sectionTitle: { color: classicVisualThemeV1.text, fontSize: 20, lineHeight: 26, fontWeight: "800", marginTop: 16 },
   listSectionLabel: { color: classicVisualPaletteV1.darkEarth, fontSize: 17, lineHeight: 23, fontWeight: "800", marginTop: 22, marginBottom: 1 },
   sectionLabel: { color: classicVisualPaletteV1.darkEarth, fontSize: 16, lineHeight: 22, fontWeight: "800", marginTop: 12 },
-  body: { color: classicVisualThemeV1.textMuted, fontSize: 16, lineHeight: 24, flexShrink: 1 },
-  meta: { color: classicVisualThemeV1.textMuted, fontSize: 14, lineHeight: 21, fontWeight: "700", flexShrink: 1 },
+  body: { color: classicVisualPaletteV1.darkEarth, fontSize: 16, lineHeight: 24, flexShrink: 1 },
+  meta: { color: classicVisualPaletteV1.darkEarth, fontSize: 14, lineHeight: 21, fontWeight: "700", flexShrink: 1 },
   warning: { color: classicVisualThemeV1.dangerText, backgroundColor: classicVisualThemeV1.warningSurface, borderRadius: classicComponentTokensV1.radius.control, borderWidth: 1, borderColor: classicVisualThemeV1.dangerText, padding: 12, fontSize: 16, lineHeight: 23, fontWeight: "700" },
-  button: { minHeight: classicComponentTokensV1.controlMinHeight, minWidth: classicComponentTokensV1.controlMinHeight, borderRadius: classicComponentTokensV1.radius.chip, paddingHorizontal: 20, paddingVertical: 14, backgroundColor: classicVisualThemeV1.accentDeep, alignItems: "center", justifyContent: "center", marginTop: 8, flexShrink: 1 },
-  buttonSecondary: { backgroundColor: classicVisualThemeV1.elevated, borderWidth: 1, borderColor: classicVisualThemeV1.accentDeep },
+  button: { minHeight: classicComponentTokensV1.controlMinHeight, minWidth: classicComponentTokensV1.controlMinHeight, borderRadius: classicComponentTokensV1.radius.chip, borderWidth: 1, borderColor: classicVisualPaletteV1.darkEarth, paddingHorizontal: 20, paddingVertical: 14, backgroundColor: classicVisualThemeV1.accentDeep, alignItems: "center", justifyContent: "center", marginTop: 8, flexShrink: 1 },
+  buttonSecondary: { backgroundColor: classicVisualThemeV1.elevated, borderWidth: 1, borderColor: classicVisualPaletteV1.darkEarth },
   buttonDestructive: { backgroundColor: classicVisualThemeV1.warningSurface, borderWidth: 2, borderColor: classicVisualThemeV1.dangerText },
-  buttonSelected: { backgroundColor: classicVisualThemeV1.selectedSurface, borderWidth: 2, borderColor: classicVisualThemeV1.accentDeep },
+  buttonSelected: { backgroundColor: classicVisualThemeV1.selectedSurface, borderWidth: 3, borderColor: classicVisualPaletteV1.darkEarth },
   buttonText: { color: classicVisualThemeV1.text, fontSize: 16, lineHeight: 21, fontWeight: "800", textAlign: "center", flexShrink: 1 },
-  buttonSecondaryText: { color: classicVisualThemeV1.accentSeaGlass },
+  buttonSecondaryText: { color: classicVisualPaletteV1.darkEarth },
   disabled: { opacity: 0.48 },
   pressed: { opacity: 0.74 },
   sessionCard: { backgroundColor: classicVisualThemeV1.elevated, borderRadius: classicComponentTokensV1.radius.card, borderWidth: 1, borderColor: classicVisualThemeV1.borderStrong, marginTop: 12, padding: classicComponentTokensV1.cardPadding, gap: 10, overflow: "hidden" },
@@ -1500,7 +1525,7 @@ const directedStyles = StyleSheet.create({
   chevron: { color: classicVisualThemeV1.accentSeaGlass, width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: classicVisualThemeV1.accentDeep, fontSize: 31, lineHeight: 40, fontWeight: "700", textAlign: "center", overflow: "hidden" },
   sessionCardFooter: { borderTopWidth: 1, borderTopColor: classicVisualPaletteV1.sand, paddingTop: 10, flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 10 },
   downloadState: { color: classicVisualThemeV1.accentMist, fontSize: 14, lineHeight: 20, fontWeight: "800", flexShrink: 1 },
-  downloadAction: { minHeight: classicComponentTokensV1.controlMinHeight, minWidth: 132, borderRadius: classicComponentTokensV1.radius.control, borderWidth: 1, borderColor: classicVisualThemeV1.accentDeep, paddingHorizontal: 16, paddingVertical: 10, alignItems: "center", justifyContent: "center", backgroundColor: classicVisualThemeV1.elevated },
+  downloadAction: { minHeight: classicComponentTokensV1.controlMinHeight, minWidth: 132, borderRadius: classicComponentTokensV1.radius.control, borderWidth: 1, borderColor: classicVisualPaletteV1.darkEarth, paddingHorizontal: 16, paddingVertical: 10, alignItems: "center", justifyContent: "center", backgroundColor: classicVisualThemeV1.elevated },
   downloadActionText: { color: classicVisualThemeV1.text, fontSize: 15, lineHeight: 20, fontWeight: "800" },
   detailCard: { backgroundColor: classicVisualThemeV1.elevated, borderRadius: classicComponentTokensV1.radius.card, borderWidth: 1, borderColor: classicVisualThemeV1.borderStrong, padding: classicComponentTokensV1.sectionPadding, marginTop: 12 },
   sessionPathCard: { backgroundColor: classicVisualThemeV1.surface, borderRadius: classicComponentTokensV1.radius.card, borderWidth: 1, borderColor: classicVisualThemeV1.border, padding: 12, marginTop: 12 },
@@ -1545,15 +1570,15 @@ const directedStyles = StyleSheet.create({
   leatherStitchActive: { opacity: 1 },
   brushSweep: { position: "absolute", width: 86, height: 9, right: 12, bottom: 15, borderRadius: 8, backgroundColor: "#D8C4AF", transform: [{ rotate: "-14deg" }], opacity: 0.76 },
   brushSweepActive: { opacity: 1, height: 11 },
-  progressTrack: { height: 12, borderRadius: classicComponentTokensV1.radius.chip, backgroundColor: classicVisualThemeV1.surface, overflow: "hidden", marginVertical: 8 },
+  progressTrack: { height: 12, borderRadius: classicComponentTokensV1.radius.chip, borderWidth: 1, borderColor: classicVisualPaletteV1.darkEarth, backgroundColor: classicVisualThemeV1.surface, overflow: "hidden", marginVertical: 8 },
   progressCompact: { height: 7, marginVertical: 5 },
-  progressFill: { height: "100%", borderRadius: classicComponentTokensV1.radius.chip, backgroundColor: classicVisualThemeV1.accentDeep },
+  progressFill: { height: "100%", borderRadius: classicComponentTokensV1.radius.chip, backgroundColor: classicVisualPaletteV1.darkEarth },
   playerCard: { backgroundColor: classicVisualThemeV1.elevated, borderRadius: classicComponentTokensV1.radius.card, borderWidth: 1, borderColor: classicVisualThemeV1.borderStrong, padding: 12, marginTop: 12 },
   phaseTitle: { color: classicVisualThemeV1.text, fontSize: 24, lineHeight: 30, fontWeight: "800" },
   progressCopyRow: { flexDirection: "row", justifyContent: "space-between", gap: 12, marginTop: 8 },
   progressCopyRowCompact: { alignItems: "flex-start", flexDirection: "column" },
   progressCopy: { color: classicVisualPaletteV1.darkEarth, fontSize: 16, lineHeight: 23, fontWeight: "700" },
-  progressReadOnlyCopy: { color: classicVisualThemeV1.textMuted, fontSize: 13, lineHeight: 18, fontWeight: "700" },
+  progressReadOnlyCopy: { color: classicVisualPaletteV1.darkEarth, fontSize: 13, lineHeight: 18, fontWeight: "700" },
   nextCopy: { color: classicVisualThemeV1.accentMist, fontSize: 17, lineHeight: 24, fontWeight: "800" },
   statusBanner: { color: classicVisualThemeV1.text, backgroundColor: classicVisualThemeV1.surface, borderRadius: classicComponentTokensV1.radius.card, borderWidth: 1, borderColor: classicVisualThemeV1.border, padding: 12, fontSize: 15, lineHeight: 22, marginTop: 8 },
   bottomActionCluster: { gap: 0 },
@@ -1562,20 +1587,20 @@ const directedStyles = StyleSheet.create({
   transportRowCompact: { flexDirection: "column", alignItems: "stretch" },
   steeringGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   steeringGridCompact: { flexDirection: "column" },
-  steeringControl: { minHeight: 72, minWidth: 140, flexGrow: 1, flexBasis: "46%", borderRadius: classicComponentTokensV1.radius.card, borderWidth: 1, borderColor: classicVisualThemeV1.border, backgroundColor: classicVisualThemeV1.elevated, padding: 12, justifyContent: "center" },
+  steeringControl: { minHeight: 72, minWidth: 140, flexGrow: 1, flexBasis: "46%", borderRadius: classicComponentTokensV1.radius.card, borderWidth: 1, borderColor: classicVisualPaletteV1.darkEarth, backgroundColor: classicVisualThemeV1.elevated, padding: 12, justifyContent: "center" },
   steeringControlWide: { flexBasis: "100%" },
-  steeringSelected: { backgroundColor: classicVisualThemeV1.selectedSurface, borderWidth: 2, borderColor: classicVisualThemeV1.accentDeep },
+  steeringSelected: { backgroundColor: classicVisualThemeV1.selectedSurface, borderWidth: 3, borderColor: classicVisualPaletteV1.darkEarth },
   steeringLabel: { color: classicVisualThemeV1.text, fontSize: 16, lineHeight: 21, fontWeight: "800" },
-  steeringState: { color: classicVisualThemeV1.textMuted, fontSize: 13, lineHeight: 19, marginTop: 4 },
+  steeringState: { color: classicVisualPaletteV1.darkEarth, fontSize: 13, lineHeight: 19, marginTop: 4 },
   choiceRow: { flexDirection: "row", flexWrap: "wrap", gap: 9 },
-  choice: { minHeight: classicComponentTokensV1.controlMinHeight, minWidth: 112, borderRadius: classicComponentTokensV1.radius.chip, borderWidth: 1, borderColor: classicVisualThemeV1.border, backgroundColor: classicVisualThemeV1.elevated, paddingHorizontal: 14, paddingVertical: 10, alignItems: "center", justifyContent: "center" },
-  choiceSelected: { backgroundColor: classicVisualThemeV1.selectedSurface, borderWidth: 2, borderColor: classicVisualThemeV1.accentDeep },
+  choice: { minHeight: classicComponentTokensV1.controlMinHeight, minWidth: 112, borderRadius: classicComponentTokensV1.radius.chip, borderWidth: 1, borderColor: classicVisualPaletteV1.darkEarth, backgroundColor: classicVisualThemeV1.elevated, paddingHorizontal: 14, paddingVertical: 10, alignItems: "center", justifyContent: "center" },
+  choiceSelected: { backgroundColor: classicVisualThemeV1.selectedSurface, borderWidth: 3, borderColor: classicVisualPaletteV1.darkEarth },
   choiceText: { color: classicVisualThemeV1.text, fontSize: 15, lineHeight: 20, fontWeight: "800", flexShrink: 1 },
   listeningStatusPanel: { backgroundColor: classicVisualThemeV1.surface, borderRadius: classicComponentTokensV1.radius.card, borderWidth: 1, borderColor: classicVisualThemeV1.border, padding: 14, marginTop: 14 },
   streamingState: { color: classicVisualThemeV1.accentMist, fontSize: 15, lineHeight: 22, fontWeight: "800", marginTop: 12 },
   chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chip: { minHeight: classicComponentTokensV1.controlMinHeight, minWidth: classicComponentTokensV1.controlMinHeight, borderRadius: classicComponentTokensV1.radius.chip, borderWidth: 1, borderColor: classicVisualThemeV1.border, backgroundColor: classicVisualThemeV1.elevated, paddingHorizontal: 14, paddingVertical: 10, justifyContent: "center" },
-  chipSelected: { backgroundColor: classicVisualThemeV1.selectedSurface, borderWidth: 2, borderColor: classicVisualThemeV1.accentDeep },
+  chip: { minHeight: classicComponentTokensV1.controlMinHeight, minWidth: classicComponentTokensV1.controlMinHeight, borderRadius: classicComponentTokensV1.radius.chip, borderWidth: 1, borderColor: classicVisualPaletteV1.darkEarth, backgroundColor: classicVisualThemeV1.elevated, paddingHorizontal: 14, paddingVertical: 10, justifyContent: "center" },
+  chipSelected: { backgroundColor: classicVisualThemeV1.selectedSurface, borderWidth: 3, borderColor: classicVisualPaletteV1.darkEarth },
   chipText: { color: classicVisualThemeV1.text, fontSize: 14, lineHeight: 20, fontWeight: "700", flexShrink: 1 },
   feedbackRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   adjustCard: { backgroundColor: classicVisualThemeV1.elevated, borderRadius: classicComponentTokensV1.radius.card, borderWidth: 1, borderColor: classicVisualThemeV1.border, padding: 14, marginTop: 12 },
@@ -1586,15 +1611,16 @@ const directedStyles = StyleSheet.create({
   miniPlayer: { minHeight: 82, backgroundColor: classicVisualPaletteV1.midnightOak, borderColor: classicVisualPaletteV1.darkEarth, borderWidth: 1, borderRadius: classicComponentTokensV1.radius.card, padding: 10, flexDirection: "row", alignItems: "center", gap: 10, shadowColor: "#000", shadowOpacity: 0.3, shadowRadius: 8, elevation: 14 },
   miniPlayerCompact: { minHeight: 118, flexDirection: "column", alignItems: "stretch" },
   miniSummary: { flex: 1, minHeight: 44, justifyContent: "center" },
+  miniSummaryOpen: { minHeight: 44, justifyContent: "center" },
   miniTitle: { color: classicVisualThemeV1.textOnDark, fontSize: 16, lineHeight: 21, fontWeight: "800" },
   miniPhase: { color: classicVisualPaletteV1.sand, fontSize: 13, lineHeight: 18 },
   pendingText: { color: classicVisualPaletteV1.sageMist, fontSize: 12, lineHeight: 16, fontWeight: "800" },
   bottomNavSafeArea: { position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: classicVisualThemeV1.background, borderTopWidth: 1, borderColor: classicVisualThemeV1.border },
   bottomNav: { minHeight: 58, paddingHorizontal: 10, paddingBottom: 6, paddingTop: 6, backgroundColor: classicVisualThemeV1.background, flexDirection: "row", gap: 6 },
   bottomNavStacked: { alignItems: "stretch", flexDirection: "column" },
-  navTab: { flex: 1, minHeight: classicComponentTokensV1.controlMinHeight, minWidth: classicComponentTokensV1.controlMinHeight, borderRadius: classicComponentTokensV1.radius.chip, borderWidth: 1, borderColor: classicVisualThemeV1.border, backgroundColor: classicVisualThemeV1.elevated, alignItems: "center", justifyContent: "center", paddingHorizontal: 4, paddingVertical: 6 },
+  navTab: { flex: 1, minHeight: classicComponentTokensV1.controlMinHeight, minWidth: classicComponentTokensV1.controlMinHeight, borderRadius: classicComponentTokensV1.radius.chip, borderWidth: 1, borderColor: classicVisualPaletteV1.darkEarth, backgroundColor: classicVisualThemeV1.elevated, alignItems: "center", justifyContent: "center", paddingHorizontal: 4, paddingVertical: 6 },
   navTabStacked: { alignSelf: "stretch", flex: 0, width: "100%" },
-  navTabSelected: { backgroundColor: classicVisualThemeV1.accentDeep, borderColor: classicVisualThemeV1.accentSeaGlass },
-  navText: { color: classicVisualThemeV1.textMuted, fontSize: 12, lineHeight: 17, fontWeight: "900", flexShrink: 1, textAlign: "center" },
+  navTabSelected: { backgroundColor: classicVisualThemeV1.accentDeep, borderWidth: 3, borderColor: classicVisualPaletteV1.darkEarth },
+  navText: { color: classicVisualPaletteV1.darkEarth, fontSize: 12, lineHeight: 17, fontWeight: "900", flexShrink: 1, textAlign: "center" },
   navTextSelected: { color: classicVisualThemeV1.text, fontWeight: "900" },
 });

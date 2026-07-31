@@ -9,6 +9,7 @@ import {
   AppState,
   findNodeHandle,
   FlatList,
+  GestureResponderEvent,
 
   Keyboard,
   LayoutChangeEvent,
@@ -384,11 +385,11 @@ const playbackTraceDisplayRefreshMillis = 250;
 const playbackTraceEventLoopGapThresholdMillis = 250;
 const sessionReplacementFadeMillis = 120;
 const appIterationInfo = {
-  label: "Alpha 0.17.0",
-  displayLabel: "Alpha 0.17.0 — Session Transport and Lifecycle v1",
-  currentUpdate: "Alpha 0.17.0 — Session Transport and Lifecycle v1",
-  codename: "session-transport-lifecycle-v1",
-  fullInternalLabel: "Alpha 0.17.0+session-transport-lifecycle-v1",
+  label: "Alpha 0.18.0",
+  displayLabel: "Alpha 0.18.0 — Accessibility Qualification and Residual Corrections v1",
+  currentUpdate: "Alpha 0.18.0 — Accessibility Qualification and Residual Corrections v1",
+  codename: "accessibility-qualification-residual-corrections-v1",
+  fullInternalLabel: "Alpha 0.18.0+accessibility-qualification-residual-corrections-v1",
   acceptedNativeBaseline: {
     label: "Alpha 0.11.7",
     displayLabel: "Alpha 0.11.7 — Single Preview Selection-Ready Fix",
@@ -1481,6 +1482,8 @@ function SoundscapeApp({
   const [savedDestinationLayoutRevision, setSavedDestinationLayoutRevision] = useState(0);
   const [savedSessionSortMode, setSavedSessionSortMode] = useState<SavedSessionSortMode>("Recently used");
   const [savedSessionDialog, setSavedSessionDialog] = useState<SavedSessionDialogState | null>(null);
+  const savedSessionNameInputRef = useRef<TextInput>(null);
+  const savedSessionDialogOpenerHandleRef = useRef<number | null>(null);
   const [savedSessionNameInput, setSavedSessionNameInput] = useState("");
   const [savedSessionNoteInput, setSavedSessionNoteInput] = useState("");
   const [savedSessionStorageError, setSavedSessionStorageError] = useState<string | null>(null);
@@ -7310,11 +7313,30 @@ function SoundscapeApp({
     return buildSavedSessionDraftForSound(selectedSound, savedSessionSourceForCurrentState(), singleBuilderModel);
   };
 
+  const focusSavedSessionDialog = () => {
+    requestAnimationFrame(() => {
+      const target = savedSessionNameInputRef.current;
+      const targetHandle = target ? findNodeHandle(target) : null;
+      if (targetHandle) AccessibilityInfo.setAccessibilityFocus(targetHandle);
+      target?.focus();
+    });
+  };
+
+  const closeSavedSessionDialog = () => {
+    const openerHandle = savedSessionDialogOpenerHandleRef.current;
+    savedSessionDialogOpenerHandleRef.current = null;
+    setSavedSessionDialog(null);
+    if (openerHandle) {
+      requestAnimationFrame(() => AccessibilityInfo.setAccessibilityFocus(openerHandle));
+    }
+  };
+
   const openSavedSessionDialog = (
     mode: SavedSessionDialogMode,
     draft?: SavedSessionDraft | null,
     sessionId?: string,
     linkToCurrent: boolean = false,
+    openerHandle?: number,
   ) => {
     clearCurrentSavedDestructiveAuthorityV1(true);
     const existingSession = sessionId ? savedSessions.find((session) => session.id === sessionId) : null;
@@ -7332,6 +7354,7 @@ function SoundscapeApp({
       showTransientNotification("Choose a playable sound or layered recipe before saving.");
       return;
     }
+    savedSessionDialogOpenerHandleRef.current = openerHandle ?? null;
     setSavedSessionDialog({ mode, draft: effectiveDraft, sessionId, linkToCurrent });
     setSavedSessionNameInput(
       mode === "save-new"
@@ -7348,7 +7371,7 @@ function SoundscapeApp({
     if (savedSessionDialog.mode === "rename" && savedSessionDialog.sessionId) {
       setSavedSessions((current) => renameSavedSession(current, savedSessionDialog.sessionId!, savedSessionNameInput, now));
       showTransientNotification("Session renamed.");
-      setSavedSessionDialog(null);
+      closeSavedSessionDialog();
       return;
     }
     const draft = savedSessionDialog.draft;
@@ -7388,7 +7411,7 @@ function SoundscapeApp({
       }
     }
     setSavedAreaTab("sessions");
-    setSavedSessionDialog(null);
+    closeSavedSessionDialog();
   };
 
   const handleDuplicateSavedSession = (sessionId: string) => {
@@ -8344,8 +8367,9 @@ function SoundscapeApp({
         ) : null}
         {savedSessionDialog && !settingsOpen ? (
           <Modal
-            animationType="fade"
-            onRequestClose={() => setSavedSessionDialog(null)}
+            animationType={reduceMotionEnabled ? "none" : "fade"}
+            onRequestClose={closeSavedSessionDialog}
+            onShow={focusSavedSessionDialog}
             statusBarTranslucent
             transparent
             visible
@@ -8374,6 +8398,7 @@ function SoundscapeApp({
               onChangeText={setSavedSessionNameInput}
               placeholder="Session name"
               placeholderTextColor={visualTheme.textSubtle}
+              ref={savedSessionNameInputRef}
               style={styles.savedSessionInput}
               value={savedSessionNameInput}
             />
@@ -8397,7 +8422,7 @@ function SoundscapeApp({
                 disabled={!savedSessionNameInput.trim()}
                 compact
               />
-              <ProofButton label="Cancel" onPress={() => setSavedSessionDialog(null)} secondary compact />
+              <ProofButton label="Cancel" onPress={closeSavedSessionDialog} secondary compact />
             </View>
               </ScrollView>
             </View>
@@ -8875,10 +8900,14 @@ function SoundscapeApp({
                     compact
                   />
                   <ProofButton
+                    capturePressEvent
                     label="Save as session"
-                    onPress={() => openSavedSessionDialog(
+                    onPress={(event) => openSavedSessionDialog(
                       "create",
                       buildSavedSessionDraftForSound(fastStartResultSound, "Fast Start"),
+                      undefined,
+                      false,
+                      findNodeHandle(event.currentTarget as unknown as React.Component) ?? undefined,
                     )}
                     secondary
                     compact
@@ -8983,10 +9012,14 @@ function SoundscapeApp({
                         compact
                       />
                       <ProofButton
+                        capturePressEvent
                         label="Save session"
-                        onPress={() => openSavedSessionDialog(
+                        onPress={(event) => openSavedSessionDialog(
                           "create",
                           buildSavedSessionDraftForPreset(fastStartGeneratedRecipePreset, "Generated Recipe"),
+                          undefined,
+                          false,
+                          findNodeHandle(event.currentTarget as unknown as React.Component) ?? undefined,
                         )}
                         secondary
                         compact
@@ -9226,10 +9259,14 @@ function SoundscapeApp({
                   compact
                 />
                 <ProofButton
+                  capturePressEvent
                   label="Save session"
-                  onPress={() => openSavedSessionDialog(
+                  onPress={(event) => openSavedSessionDialog(
                     "create",
                     buildSavedSessionDraftForGeneratedBuilderResult(),
+                    undefined,
+                    false,
+                    findNodeHandle(event.currentTarget as unknown as React.Component) ?? undefined,
                   )}
                   balancedAction={!useCompactThreeColumnFallback}
                   fullWidth={useCompactThreeColumnFallback}
@@ -9495,20 +9532,26 @@ function SoundscapeApp({
                   {currentSavedSessionId ? (
                     <>
                       <ProofButton
+                        capturePressEvent
                         label="Update session"
-                        onPress={() => openSavedSessionDialog(
+                        onPress={(event) => openSavedSessionDialog(
                           "update",
                           buildCurrentSavedSessionDraft(),
                           currentSavedSessionId,
+                          false,
+                          findNodeHandle(event.currentTarget as unknown as React.Component) ?? undefined,
                         )}
                         compact
                       />
                       <ProofButton
+                        capturePressEvent
                         label="Save as new"
-                        onPress={() => openSavedSessionDialog(
+                        onPress={(event) => openSavedSessionDialog(
                           "save-new",
                           buildCurrentSavedSessionDraft(),
                           currentSavedSessionId,
+                          false,
+                          findNodeHandle(event.currentTarget as unknown as React.Component) ?? undefined,
                         )}
                         secondary
                         compact
@@ -9516,8 +9559,9 @@ function SoundscapeApp({
                     </>
                   ) : (
                     <ProofButton
+                      capturePressEvent
                       label={currentSession.type === "recipe" ? "Save session" : "Save as session"}
-                      onPress={() => openSavedSessionDialog("create", buildCurrentSavedSessionDraft(), undefined, true)}
+                      onPress={(event) => openSavedSessionDialog("create", buildCurrentSavedSessionDraft(), undefined, true, findNodeHandle(event.currentTarget as unknown as React.Component) ?? undefined)}
                       compact
                     />
                   )}
@@ -9970,8 +10014,9 @@ function SoundscapeApp({
                                 useStackedSavedSessionManageActions ? styles.savedSessionManageActionsStacked : null,
                               ]}>
                                 <ProofButton
+                                  capturePressEvent
                                   label="Rename"
-                                  onPress={() => openSavedSessionDialog("rename", null, session.id)}
+                                  onPress={(event) => openSavedSessionDialog("rename", null, session.id, false, findNodeHandle(event.currentTarget as unknown as React.Component) ?? undefined)}
                                   balancedAction={!useStackedSavedSessionManageActions}
                                   fullWidth={useStackedSavedSessionManageActions}
                                   secondary
@@ -10588,7 +10633,8 @@ type ProofButtonProps = {
   accessibilityLabel?: string;
   accessibilityHint?: string;
   label: string;
-  onPress: () => void;
+  onPress: (() => void) | ((event: GestureResponderEvent) => void);
+  capturePressEvent?: boolean;
   disabled?: boolean;
   busy?: boolean;
   secondary?: boolean;
@@ -10607,6 +10653,7 @@ function ProofButton({
   accessibilityHint,
   label,
   onPress,
+  capturePressEvent,
   disabled,
   busy,
   secondary,
@@ -10631,7 +10678,11 @@ function ProofButton({
       disabled={disabled}
       onPress={(event) => {
         event.stopPropagation();
-        onPress();
+        if (capturePressEvent) {
+          (onPress as (pressEvent: GestureResponderEvent) => void)(event);
+        } else {
+          (onPress as () => void)();
+        }
       }}
       style={({ pressed }) => [
         styles.button,

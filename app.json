@@ -3,7 +3,7 @@
     "name": "Soundscape",
     "slug": "soundscape-mobile",
     "scheme": "soundscape",
-    "version": "0.17.0",
+    "version": "0.18.0",
 
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.wellmadesystems.soundscape",
-      "buildNumber": "27",
+      "buildNumber": "28",
       "infoPlist": {
         "UIBackgroundModes": [
           "audio"
@@ -25,7 +25,7 @@
     },
     "android": {
       "package": "com.wellmadesystems.soundscape",
-      "versionCode": 34,
+      "versionCode": 35,
       "permissions": [
         "android.permission.POST_NOTIFICATIONS"
       ],
