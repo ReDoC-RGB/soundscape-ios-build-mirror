@@ -143,17 +143,74 @@ export function resolveAdaptiveBrandHeadingProjectionV1(input: Readonly<{
   });
 }
 
+export type AdaptiveLayoutGenerationV1 = Readonly<{
+  layoutKey: string;
+  generation: number;
+}>;
+
 export type AdaptiveDockMeasurementV1 = Readonly<{
   layoutKey: string;
+  generation: number;
   height: number;
 }>;
 
+export type AdaptiveDockMeasurementPublicationV1 = Readonly<{
+  measurement: AdaptiveDockMeasurementV1;
+  accepted: boolean;
+  reason: "accepted" | "stale-generation" | "unchanged" | "invalid-height";
+}>;
+
+export function beginAdaptiveLayoutGenerationV1(
+  current: AdaptiveLayoutGenerationV1 | null,
+  layoutKey: string,
+): AdaptiveLayoutGenerationV1 {
+  if (current?.layoutKey === layoutKey) return current;
+  return Object.freeze({
+    layoutKey,
+    generation: current ? current.generation + 1 : 0,
+  });
+}
+
+export function publishAdaptiveDockMeasurementV1(input: Readonly<{
+  current: AdaptiveDockMeasurementV1;
+  authority: AdaptiveLayoutGenerationV1;
+  publication: AdaptiveDockMeasurementV1;
+}>): AdaptiveDockMeasurementPublicationV1 {
+  if (
+    input.publication.layoutKey !== input.authority.layoutKey
+    || input.publication.generation !== input.authority.generation
+  ) {
+    return Object.freeze({ measurement: input.current, accepted: false, reason: "stale-generation" });
+  }
+  if (!Number.isFinite(input.publication.height) || input.publication.height < 0) {
+    return Object.freeze({ measurement: input.current, accepted: false, reason: "invalid-height" });
+  }
+  if (
+    input.current.layoutKey === input.publication.layoutKey
+    && input.current.generation === input.publication.generation
+    && Math.abs(input.current.height - input.publication.height) < 0.5
+  ) {
+    return Object.freeze({ measurement: input.current, accepted: false, reason: "unchanged" });
+  }
+  return Object.freeze({
+    measurement: Object.freeze({
+      layoutKey: input.publication.layoutKey,
+      generation: input.publication.generation,
+      height: input.publication.height,
+    }),
+    accepted: true,
+    reason: "accepted",
+  });
+}
+
 export function resolveAdaptiveDockHeightV1(input: Readonly<{
   layoutKey: string;
+  layoutGeneration: number;
   measurement: AdaptiveDockMeasurementV1;
   provisionalHeight: number;
 }>): Readonly<{ height: number; measurementCurrent: boolean }> {
-  const measurementCurrent = input.measurement.layoutKey === input.layoutKey;
+  const measurementCurrent = input.measurement.layoutKey === input.layoutKey
+    && input.measurement.generation === input.layoutGeneration;
   return Object.freeze({
     height: measurementCurrent
       ? finiteNonNegative(input.measurement.height, input.provisionalHeight)
@@ -232,6 +289,66 @@ export function resolveAdaptivePersistentDockViewportV1(input: Readonly<{
     navigationScrollEnabled: navigationViewportHeight + 0.5 < navigationHeight,
     miniPlayerScrollEnabled: miniPlayerViewportHeight + 0.5 < miniPlayerHeight,
   });
+}
+
+export type MaximumTextDockPolicyV1 = Readonly<{
+  acceptIntrinsicMeasurementFeedback: boolean;
+  navigationScrollEnabled: boolean;
+  miniPlayerScrollEnabled: boolean;
+}>;
+
+export function resolveMaximumTextDockPolicyV1(input: Readonly<{
+  mode: "normal" | "accessibility";
+  viewport: Readonly<{
+    navigationScrollEnabled: boolean;
+    miniPlayerScrollEnabled: boolean;
+  }>;
+}>): MaximumTextDockPolicyV1 {
+  if (input.mode === "accessibility") {
+    return Object.freeze({
+      acceptIntrinsicMeasurementFeedback: false,
+      navigationScrollEnabled: true,
+      miniPlayerScrollEnabled: true,
+    });
+  }
+  return Object.freeze({
+    acceptIntrinsicMeasurementFeedback: true,
+    navigationScrollEnabled: input.viewport.navigationScrollEnabled,
+    miniPlayerScrollEnabled: input.viewport.miniPlayerScrollEnabled,
+  });
+}
+
+export type FullPlayerMaximumTextViewportV1 = Readonly<{
+  availableHeight: number;
+  verticalScrollEnabled: boolean;
+  horizontalScrollEnabled: false;
+}>;
+
+export function resolveFullPlayerMaximumTextViewportV1(input: Readonly<{
+  viewportHeight: number;
+  safeAreaTop: number;
+  safeAreaBottom: number;
+  headerHeight: number;
+  mode: "normal" | "accessibility";
+}>): FullPlayerMaximumTextViewportV1 {
+  const viewportHeight = finitePositive(input.viewportHeight, 568);
+  const safeAreaTop = finiteNonNegative(input.safeAreaTop, 0);
+  const safeAreaBottom = finiteNonNegative(input.safeAreaBottom, 0);
+  const headerHeight = finiteNonNegative(input.headerHeight, adaptiveTextLayoutThresholdsV1.minimumTouchTarget);
+  return Object.freeze({
+    availableHeight: Math.max(
+      adaptiveTextLayoutThresholdsV1.minimumTouchTarget,
+      viewportHeight - safeAreaTop - safeAreaBottom - headerHeight,
+    ),
+    // All Directed surfaces keep one vertical owner. At maximum text this is
+    // mandatory; in normal mode it preserves the accepted long-page behavior.
+    verticalScrollEnabled: true,
+    horizontalScrollEnabled: false,
+  });
+}
+
+export function resolveMaximumTextSettingsLabelV1(mode: "normal" | "accessibility"): "Settings" | "⚙︎" {
+  return mode === "accessibility" ? "⚙︎" : "Settings";
 }
 
 export function resolveAdaptiveActionClusterProvisionalHeightV1(input: Readonly<{

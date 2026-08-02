@@ -1,9 +1,9 @@
 const UNBOUND_SOURCE_COMMIT = "0000000000000000000000000000000000000000";
 const RELEASE = Object.freeze({
-  label: "Alpha 0.18.0",
-  displayLabel: "Alpha 0.18.0 — Accessibility Qualification and Residual Corrections v1",
-  codename: "accessibility-qualification-residual-corrections-v1",
-  internalLabel: "Alpha 0.18.0+accessibility-qualification-residual-corrections-v1",
+  label: "Alpha 0.18.1",
+  displayLabel: "Alpha 0.18.1 — Maximum-Text Layout Stability Correction",
+  codename: "maximum-text-layout-stability-correction-v1",
+  internalLabel: "Alpha 0.18.1+maximum-text-layout-stability-correction-v1",
 });
 
 module.exports = ({ config }) => {

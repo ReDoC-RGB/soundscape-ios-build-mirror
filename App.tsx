@@ -77,6 +77,8 @@ import {
   type SavedDestructiveContextV1,
 } from "./src/navigation/savedDestructiveNavigationAuthorityV1";
 import {
+  beginAdaptiveLayoutGenerationV1,
+  publishAdaptiveDockMeasurementV1,
   resolveAdaptiveBrandHeadingProjectionV1,
   resolveAdaptiveDockHeightV1,
   resolveAdaptiveMiniPlayerProvisionalHeightV1,
@@ -84,7 +86,10 @@ import {
   resolveAdaptivePersistentDockViewportV1,
   resolveAdaptiveTextLayoutV1,
   resolveAdaptiveTextLinePolicyV1,
+  resolveMaximumTextDockPolicyV1,
+  resolveMaximumTextSettingsLabelV1,
   type AdaptiveDockMeasurementV1,
+  type AdaptiveLayoutGenerationV1,
 } from "./src/ui/adaptiveTextLayoutV1";
 
 const mobileCatalogSounds: MobileCatalogSound[] = [
@@ -385,11 +390,11 @@ const playbackTraceDisplayRefreshMillis = 250;
 const playbackTraceEventLoopGapThresholdMillis = 250;
 const sessionReplacementFadeMillis = 120;
 const appIterationInfo = {
-  label: "Alpha 0.18.0",
-  displayLabel: "Alpha 0.18.0 — Accessibility Qualification and Residual Corrections v1",
-  currentUpdate: "Alpha 0.18.0 — Accessibility Qualification and Residual Corrections v1",
-  codename: "accessibility-qualification-residual-corrections-v1",
-  fullInternalLabel: "Alpha 0.18.0+accessibility-qualification-residual-corrections-v1",
+  label: "Alpha 0.18.1",
+  displayLabel: "Alpha 0.18.1 — Maximum-Text Layout Stability Correction",
+  currentUpdate: "Alpha 0.18.1 — Maximum-Text Layout Stability Correction",
+  codename: "maximum-text-layout-stability-correction-v1",
+  fullInternalLabel: "Alpha 0.18.1+maximum-text-layout-stability-correction-v1",
   acceptedNativeBaseline: {
     label: "Alpha 0.11.7",
     displayLabel: "Alpha 0.11.7 — Single Preview Selection-Ready Fix",
@@ -1181,6 +1186,16 @@ function SoundscapeApp({
 }: SoundscapeAppProps = {}) {
   const { fontScale, height: screenHeight, width: screenWidth } = useWindowDimensions();
   const adaptiveTextLayout = resolveAdaptiveTextLayoutV1({ width: screenWidth, fontScale });
+  const adaptiveLayoutGenerationRef = useRef<AdaptiveLayoutGenerationV1 | null>(null);
+  const adaptiveLayoutGeneration = useMemo(() => {
+    const next = beginAdaptiveLayoutGenerationV1(
+      adaptiveLayoutGenerationRef.current,
+      adaptiveTextLayout.layoutKey,
+    );
+    adaptiveLayoutGenerationRef.current = next;
+    return next;
+  }, [adaptiveTextLayout.layoutKey]);
+  const maximumTextSettingsLabel = resolveMaximumTextSettingsLabelV1(adaptiveTextLayout.mode);
   const brandHeadingProjection = resolveAdaptiveBrandHeadingProjectionV1({
     width: screenWidth,
     fontScale,
@@ -1219,10 +1234,12 @@ function SoundscapeApp({
   const useStackedClassicHeader = adaptiveTextLayout.stackHeader;
   const [bottomNavigationMeasurement, setBottomNavigationMeasurement] = useState<AdaptiveDockMeasurementV1>({
     layoutKey: "",
+    generation: -1,
     height: 0,
   });
   const [miniPlayerMeasurement, setMiniPlayerMeasurement] = useState<AdaptiveDockMeasurementV1>({
     layoutKey: "",
+    generation: -1,
     height: 0,
   });
   const provisionalBottomNavigationHeight = resolveAdaptiveNavigationHeightV1({
@@ -1238,11 +1255,13 @@ function SoundscapeApp({
   });
   const bottomNavigationContentHeight = resolveAdaptiveDockHeightV1({
     layoutKey: adaptiveTextLayout.layoutKey,
+    layoutGeneration: adaptiveLayoutGeneration.generation,
     measurement: bottomNavigationMeasurement,
     provisionalHeight: provisionalBottomNavigationHeight,
   }).height;
   const miniPlayerHeight = resolveAdaptiveDockHeightV1({
     layoutKey: adaptiveTextLayout.layoutKey,
+    layoutGeneration: adaptiveLayoutGeneration.generation,
     measurement: miniPlayerMeasurement,
     provisionalHeight: provisionalMiniPlayerHeight,
   }).height;
@@ -1253,24 +1272,33 @@ function SoundscapeApp({
     navigationHeight: bottomNavigationContentHeight,
     miniPlayerHeight,
   });
+  const maximumTextDockPolicy = resolveMaximumTextDockPolicyV1({
+    mode: adaptiveTextLayout.mode,
+    viewport: adaptiveDockViewport,
+  });
+  const publishDockMeasurement = (
+    setter: React.Dispatch<React.SetStateAction<AdaptiveDockMeasurementV1>>,
+    height: number,
+  ) => {
+    const publication = {
+      layoutKey: adaptiveLayoutGeneration.layoutKey,
+      generation: adaptiveLayoutGeneration.generation,
+      height,
+    };
+    setter((current) => publishAdaptiveDockMeasurementV1({
+      current,
+      authority: adaptiveLayoutGenerationRef.current ?? adaptiveLayoutGeneration,
+      publication,
+    }).measurement);
+  };
   const handleBottomNavigationLayout = (event: LayoutChangeEvent) => {
-    if (adaptiveTextLayout.mode === "normal") {
-      setBottomNavigationMeasurement({ layoutKey: adaptiveTextLayout.layoutKey, height: event.nativeEvent.layout.height });
+    if (maximumTextDockPolicy.acceptIntrinsicMeasurementFeedback) {
+      publishDockMeasurement(setBottomNavigationMeasurement, event.nativeEvent.layout.height);
     }
   };
   const handleMiniPlayerLayout = (event: LayoutChangeEvent) => {
-    if (adaptiveTextLayout.mode === "normal") {
-      setMiniPlayerMeasurement({ layoutKey: adaptiveTextLayout.layoutKey, height: event.nativeEvent.layout.height });
-    }
-  };
-  const handleBottomNavigationContentSizeChange = (_width: number, height: number) => {
-    if (adaptiveTextLayout.mode === "accessibility") {
-      setBottomNavigationMeasurement({ layoutKey: adaptiveTextLayout.layoutKey, height });
-    }
-  };
-  const handleMiniPlayerContentSizeChange = (_width: number, height: number) => {
-    if (adaptiveTextLayout.mode === "accessibility") {
-      setMiniPlayerMeasurement({ layoutKey: adaptiveTextLayout.layoutKey, height });
+    if (maximumTextDockPolicy.acceptIntrinsicMeasurementFeedback) {
+      publishDockMeasurement(setMiniPlayerMeasurement, event.nativeEvent.layout.height);
     }
   };
   const [sound, setSound] = useState<ManagedAudioResource | null>(null);
@@ -8348,7 +8376,14 @@ function SoundscapeApp({
               pressed ? styles.pressedSoundRow : null,
             ]}
           >
-            <Text style={[styles.settingsEntryText, settingsOpen ? styles.settingsEntryTextActive : null]}>Settings</Text>
+            <Text
+              accessibilityElementsHidden
+              importantForAccessibility="no"
+              maxFontSizeMultiplier={adaptiveTextLayout.mode === "accessibility" ? 1.35 : undefined}
+              style={[styles.settingsEntryText, settingsOpen ? styles.settingsEntryTextActive : null]}
+            >
+              {maximumTextSettingsLabel}
+            </Text>
           </Pressable>
         </View>
 
@@ -10337,10 +10372,9 @@ function SoundscapeApp({
         <ScrollView
           accessibilityLabel="Compact Player controls"
           nestedScrollEnabled
-          onContentSizeChange={handleMiniPlayerContentSizeChange}
           onLayout={handleMiniPlayerLayout}
-          scrollEnabled={adaptiveDockViewport.miniPlayerScrollEnabled}
-          showsVerticalScrollIndicator={adaptiveDockViewport.miniPlayerScrollEnabled}
+          scrollEnabled={maximumTextDockPolicy.miniPlayerScrollEnabled}
+          showsVerticalScrollIndicator={maximumTextDockPolicy.miniPlayerScrollEnabled}
           style={[
             styles.miniPlayer,
             { bottom: retainedClassicMiniPlayerBottom },
@@ -10479,10 +10513,9 @@ function SoundscapeApp({
             adaptiveTextLayout.navigationMode === "stacked" ? styles.persistentSectionNavStacked : null,
           ]}
           nestedScrollEnabled
-          onContentSizeChange={handleBottomNavigationContentSizeChange}
           onLayout={handleBottomNavigationLayout}
-          scrollEnabled={adaptiveDockViewport.navigationScrollEnabled}
-          showsVerticalScrollIndicator={adaptiveDockViewport.navigationScrollEnabled}
+          scrollEnabled={maximumTextDockPolicy.navigationScrollEnabled}
+          showsVerticalScrollIndicator={maximumTextDockPolicy.navigationScrollEnabled}
           style={adaptiveTextLayout.mode === "accessibility"
             ? { maxHeight: adaptiveDockViewport.navigationViewportHeight }
             : undefined}
@@ -12071,6 +12104,7 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     justifyContent: "center",
     minHeight: mobileUxTokens.controlMinHeight,
+    minWidth: mobileUxTokens.controlMinHeight,
     paddingHorizontal: 12,
     paddingVertical: 6,
   },

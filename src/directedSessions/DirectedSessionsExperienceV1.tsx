@@ -66,6 +66,8 @@ import {
   type ClassicMiniPlayerOverlayMetricsV1,
 } from "../ui/classicMiniPlayerOverlayLayoutV1";
 import {
+  beginAdaptiveLayoutGenerationV1,
+  publishAdaptiveDockMeasurementV1,
   resolveAdaptiveActionClusterProvisionalHeightV1,
   resolveAdaptiveBrandHeadingProjectionV1,
   resolveAdaptiveDockHeightV1,
@@ -74,7 +76,11 @@ import {
   resolveAdaptivePersistentDockViewportV1,
   resolveAdaptiveTextLayoutV1,
   resolveAdaptiveTextLinePolicyV1,
+  resolveFullPlayerMaximumTextViewportV1,
+  resolveMaximumTextDockPolicyV1,
+  resolveMaximumTextSettingsLabelV1,
   type AdaptiveDockMeasurementV1,
+  type AdaptiveLayoutGenerationV1,
 } from "../ui/adaptiveTextLayoutV1";
 
 export type DirectedClassicRouteV1 = "fast-start" | "browse" | "presets" | "player" | "saved-mixes" | "saved-sounds" | "settings";
@@ -570,6 +576,16 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
 }>) {
   const { width, height: screenHeight, fontScale } = useWindowDimensions();
   const adaptiveTextLayout = resolveAdaptiveTextLayoutV1({ width, fontScale });
+  const adaptiveLayoutGenerationRef = useRef<AdaptiveLayoutGenerationV1 | null>(null);
+  const adaptiveLayoutGeneration = useMemo(() => {
+    const next = beginAdaptiveLayoutGenerationV1(
+      adaptiveLayoutGenerationRef.current,
+      adaptiveTextLayout.layoutKey,
+    );
+    adaptiveLayoutGenerationRef.current = next;
+    return next;
+  }, [adaptiveTextLayout.layoutKey]);
+  const maximumTextSettingsLabel = resolveMaximumTextSettingsLabelV1(adaptiveTextLayout.mode);
   const brandHeadingProjection = resolveAdaptiveBrandHeadingProjectionV1({
     width,
     fontScale,
@@ -582,6 +598,15 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
     essential: true,
   });
   const insets = useSafeAreaInsets();
+  const fullPlayerMaximumTextViewport = resolveFullPlayerMaximumTextViewportV1({
+    viewportHeight: screenHeight,
+    safeAreaTop: insets.top,
+    safeAreaBottom: insets.bottom,
+    headerHeight: adaptiveTextLayout.mode === "accessibility"
+      ? 2 * classicComponentTokensV1.controlMinHeight + classicComponentTokensV1.spacing.md
+      : classicComponentTokensV1.controlMinHeight,
+    mode: adaptiveTextLayout.mode,
+  });
   const compact = adaptiveTextLayout.stackHeader;
   const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
   const [tab, setTab] = useState<DirectedTabV1>(props.initialTab ?? "sessions");
@@ -611,14 +636,17 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
   const [directedAppState, setDirectedAppState] = useState<DirectedProjectionAppStateV1>(AppState.currentState);
   const [bottomNavigationMeasurement, setBottomNavigationMeasurement] = useState<AdaptiveDockMeasurementV1>({
     layoutKey: "",
+    generation: -1,
     height: 0,
   });
   const [miniPlayerMeasurement, setMiniPlayerMeasurement] = useState<AdaptiveDockMeasurementV1>({
     layoutKey: "",
+    generation: -1,
     height: 0,
   });
   const bottomNavigationContentHeight = resolveAdaptiveDockHeightV1({
     layoutKey: adaptiveTextLayout.layoutKey,
+    layoutGeneration: adaptiveLayoutGeneration.generation,
     measurement: bottomNavigationMeasurement,
     provisionalHeight: resolveAdaptiveNavigationHeightV1({
       itemCount: directedNavigationV1.length,
@@ -629,6 +657,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
   }).height;
   const miniPlayerMeasuredHeight = resolveAdaptiveDockHeightV1({
     layoutKey: adaptiveTextLayout.layoutKey,
+    layoutGeneration: adaptiveLayoutGeneration.generation,
     measurement: miniPlayerMeasurement,
     provisionalHeight: resolveAdaptiveMiniPlayerProvisionalHeightV1({
       actionCount: 1,
@@ -643,12 +672,18 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
     navigationHeight: bottomNavigationContentHeight,
     miniPlayerHeight: miniPlayerMeasuredHeight,
   }), [bottomNavigationContentHeight, fontScale, insets.bottom, miniPlayerMeasuredHeight, screenHeight]);
+  const maximumTextDockPolicy = resolveMaximumTextDockPolicyV1({
+    mode: adaptiveTextLayout.mode,
+    viewport: adaptiveDockViewport,
+  });
   const [bottomActionClusterMeasurement, setBottomActionClusterMeasurement] = useState<AdaptiveDockMeasurementV1>({
     layoutKey: "",
+    generation: -1,
     height: 0,
   });
   const bottomActionClusterHeight = resolveAdaptiveDockHeightV1({
     layoutKey: adaptiveTextLayout.layoutKey,
+    layoutGeneration: adaptiveLayoutGeneration.generation,
     measurement: bottomActionClusterMeasurement,
     provisionalHeight: resolveAdaptiveActionClusterProvisionalHeightV1({
       actionCount: 2,
@@ -656,6 +691,21 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
       minimumTouchTarget: classicComponentTokensV1.controlMinHeight,
     }),
   }).height;
+  const publishDockMeasurement = (
+    setter: React.Dispatch<React.SetStateAction<AdaptiveDockMeasurementV1>>,
+    height: number,
+  ) => {
+    const publication = {
+      layoutKey: adaptiveLayoutGeneration.layoutKey,
+      generation: adaptiveLayoutGeneration.generation,
+      height,
+    };
+    setter((current) => publishAdaptiveDockMeasurementV1({
+      current,
+      authority: adaptiveLayoutGenerationRef.current ?? adaptiveLayoutGeneration,
+      publication,
+    }).measurement);
+  };
   const projectionInFlight = useRef<Promise<NativeDirectedSessionStateV1 | null> | null>(null);
   const mountedRef = useRef(false);
   const lifecycleEpochRef = useRef(0);
@@ -1285,10 +1335,10 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
           </View>
           <Text accessibilityLiveRegion="polite" style={selectedVariant.blocked || !available.startable ? directedStyles.warning : directedStyles.statusBanner}>{selectedVariant.blocked ? selectedVariant.customerCopy : customerReadinessCopy}</Text>
           <View
-            onLayout={({ nativeEvent }) => setBottomActionClusterMeasurement({
-              layoutKey: adaptiveTextLayout.layoutKey,
-              height: nativeEvent.layout.height,
-            })}
+            onLayout={({ nativeEvent }) => publishDockMeasurement(
+              setBottomActionClusterMeasurement,
+              nativeEvent.layout.height,
+            )}
             style={directedStyles.bottomActionCluster}
           >
             <DirectedButtonV1
@@ -1362,19 +1412,31 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
           Soundscape
         </Text>
         <Pressable
+          accessibilityLabel="Settings"
           accessibilityRole="button"
           onPress={() => openClassic("settings")}
           style={({ pressed }) => [directedStyles.headerSettings, pressed ? directedStyles.pressed : null]}
         >
-          <Text style={directedStyles.headerSettingsText}>Settings</Text>
+          <Text
+            accessibilityElementsHidden
+            importantForAccessibility="no"
+            maxFontSizeMultiplier={adaptiveTextLayout.mode === "accessibility" ? 1.35 : undefined}
+            style={directedStyles.headerSettingsText}
+          >
+            {maximumTextSettingsLabel}
+          </Text>
         </Pressable>
       </View>
       <ScrollView
+        contentInsetAdjustmentBehavior="never"
         contentContainerStyle={[
           directedStyles.content,
           adaptiveTextLayout.mode === "accessibility" ? directedStyles.contentAccessibility : null,
           { paddingBottom: contentBottomPadding },
         ]}
+        horizontal={false}
+        scrollEnabled={fullPlayerMaximumTextViewport.verticalScrollEnabled}
+        style={directedStyles.contentViewport}
       >
         {content}
       </ScrollView>
@@ -1394,21 +1456,13 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
         <ScrollView
           accessibilityLabel="Directed compact Player controls"
           nestedScrollEnabled
-          onContentSizeChange={(_width, height) => {
-            if (adaptiveTextLayout.mode === "accessibility") {
-              setMiniPlayerMeasurement({ layoutKey: adaptiveTextLayout.layoutKey, height });
-            }
-          }}
           onLayout={({ nativeEvent }) => {
-            if (adaptiveTextLayout.mode === "normal") {
-              setMiniPlayerMeasurement({
-                layoutKey: adaptiveTextLayout.layoutKey,
-                height: nativeEvent.layout.height,
-              });
+            if (maximumTextDockPolicy.acceptIntrinsicMeasurementFeedback) {
+              publishDockMeasurement(setMiniPlayerMeasurement, nativeEvent.layout.height);
             }
           }}
-          scrollEnabled={adaptiveDockViewport.miniPlayerScrollEnabled}
-          showsVerticalScrollIndicator={adaptiveDockViewport.miniPlayerScrollEnabled}
+          scrollEnabled={maximumTextDockPolicy.miniPlayerScrollEnabled}
+          showsVerticalScrollIndicator={maximumTextDockPolicy.miniPlayerScrollEnabled}
           style={[
             directedStyles.miniPlayerPlacement,
             { bottom: miniPlayerBottom },
@@ -1433,21 +1487,13 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
               adaptiveTextLayout.navigationMode === "stacked" ? directedStyles.bottomNavStacked : null,
             ]}
             nestedScrollEnabled
-            onContentSizeChange={(_width, height) => {
-              if (adaptiveTextLayout.mode === "accessibility") {
-                setBottomNavigationMeasurement({ layoutKey: adaptiveTextLayout.layoutKey, height });
-              }
-            }}
             onLayout={({ nativeEvent }) => {
-              if (adaptiveTextLayout.mode === "normal") {
-                setBottomNavigationMeasurement({
-                  layoutKey: adaptiveTextLayout.layoutKey,
-                  height: nativeEvent.layout.height,
-                });
+              if (maximumTextDockPolicy.acceptIntrinsicMeasurementFeedback) {
+                publishDockMeasurement(setBottomNavigationMeasurement, nativeEvent.layout.height);
               }
             }}
-            scrollEnabled={adaptiveDockViewport.navigationScrollEnabled}
-            showsVerticalScrollIndicator={adaptiveDockViewport.navigationScrollEnabled}
+            scrollEnabled={maximumTextDockPolicy.navigationScrollEnabled}
+            showsVerticalScrollIndicator={maximumTextDockPolicy.navigationScrollEnabled}
             style={adaptiveTextLayout.mode === "accessibility"
               ? { maxHeight: adaptiveDockViewport.navigationViewportHeight }
               : undefined}
@@ -1485,6 +1531,7 @@ export function DirectedSessionsExperienceV1(props: Readonly<{
 
 const directedStyles = StyleSheet.create({
   safeAreaShell: { flex: 1, backgroundColor: classicVisualThemeV1.background },
+  contentViewport: { flex: 1, minHeight: 0 },
   topBar: { minHeight: classicComponentTokensV1.controlMinHeight, paddingHorizontal: classicComponentTokensV1.cardPadding, paddingVertical: classicComponentTokensV1.spacing.xs, marginHorizontal: classicComponentTokensV1.sectionPadding, marginTop: classicComponentTokensV1.spacing.xs, backgroundColor: classicVisualThemeV1.elevated, borderRadius: classicComponentTokensV1.radius.card, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: classicComponentTokensV1.spacing.sm },
   topBarStacked: { alignItems: "stretch", flexDirection: "column" },
   brand: { color: classicVisualThemeV1.text, fontSize: 28, lineHeight: 34, fontWeight: "900", flexShrink: 1 },

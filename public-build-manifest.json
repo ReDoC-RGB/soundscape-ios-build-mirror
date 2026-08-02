@@ -1,15 +1,15 @@
 {
-  "canonicalPrivateCommit": "852b3f33a5a502cde3016d0666ef0ad2eb618397",
+  "canonicalPrivateCommit": "5c186c34bccbdbfe3a8191b184c02ec81fc03c15",
   "exportedPaths": [
     {
       "path": ".github/workflows/ios-internal.yml",
-      "byteLength": 14179,
-      "sha256": "8d8b54b5f5dc7d3c1fc0f3bf7b2d40638efd52991b60a1e9f06ee8cfa55af5db"
+      "byteLength": 14148,
+      "sha256": "717d969f3d95b87549d199f7b3d636a9a487911da7ca82c5ebdfbed14a22889b"
     },
     {
       "path": "App.tsx",
-      "byteLength": 579445,
-      "sha256": "39863ce69022fd0d06cd6502d5a929f2025f08eaa5a498aa7410f75a43b204ea"
+      "byteLength": 580523,
+      "sha256": "1d7567423c4b0033cce4ef144c5c5de8c098c8a6e6c84e2138ef88886546e567"
     },
     {
       "path": "README.md",
@@ -18,13 +18,13 @@
     },
     {
       "path": "app.config.js",
-      "byteLength": 1911,
-      "sha256": "138404339b24fd092801fd2de178d34b7faacaf474d2c6e75b2ff854a3ac839a"
+      "byteLength": 1880,
+      "sha256": "d532d7403460cce604fddf051266973fa0c82a3715bd215b9c0102bd644547d2"
     },
     {
       "path": "app.json",
       "byteLength": 1322,
-      "sha256": "1a639701807b8c9e86a01969dc3f26ce1b73662814e1dc1e789a47078db3a3a9"
+      "sha256": "5f2b404a7c32788fd4d3030b958a8d273c9e309e4ec71f677fb6e35a94f5b3fb"
     },
     {
       "path": "assets/icon.png",
@@ -278,8 +278,8 @@
     },
     {
       "path": "src/directedSessions/DirectedSessionsExperienceV1.tsx",
-      "byteLength": 97887,
-      "sha256": "40e2c3f3ec583e0ca9fafb5e7fea6fb784b0042504fc68c8e36fc337052c8bd0"
+      "byteLength": 99780,
+      "sha256": "4ae7c999a18ae4c87d2bca5e1c7c0959ec59cfced3b6b3956bdab10c624464b9"
     },
     {
       "path": "src/directedSessions/directedContentEvidenceV1.ts",
@@ -523,8 +523,8 @@
     },
     {
       "path": "src/ui/adaptiveTextLayoutV1.ts",
-      "byteLength": 10790,
-      "sha256": "27c85a3646d23333d146f17cde5bc0000902acf9ee1125b23351ea4335902673"
+      "byteLength": 14889,
+      "sha256": "88e87e3a7f0596970391299cc0739702711420814a8b70eb336727f60e27e4ec"
     },
     {
       "path": "src/ui/classicMiniPlayerOverlayLayoutV1.ts",
