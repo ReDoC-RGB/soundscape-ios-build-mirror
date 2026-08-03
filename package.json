@@ -25,6 +25,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
+    "check:alpha-0.19.0-step7": "node scripts/alpha-0.19.0-step7-offline-persistence-recovery-hardening-v1-check.mjs",
     "check:library-metadata": "node scripts/library-metadata-v1-check.mjs",
     "check:local-recipe-engine": "node scripts/local-recipe-engine-v1-check.mjs",
     "check:builder-v3-generated-recipes": "node scripts/builder-v3-generated-recipes-check.mjs",

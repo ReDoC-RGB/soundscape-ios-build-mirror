@@ -133,6 +133,7 @@ import {
   type MobileSectionKey,
 } from "./src/contracts/persistenceContractV1";
 import { appPersistence, commitImportedLocalSnapshotV1, resetSupportedLocalDataV1 } from "./src/services/appPersistence";
+import { directedSessionServiceV1 } from "./src/services/directedSessionServiceV1";
 import {
   createLocalBackupV1,
   applyLocalBackupV1,
@@ -140,6 +141,15 @@ import {
   validateLocalBackupV1,
   type LocalBackupModeV1,
 } from "./src/contracts/localBackupContractV1";
+import {
+  validateImportedLocalBackupSnapshotV1,
+  validateImportedLocalBackupTransientStateV1,
+} from "./src/contracts/localBackupRestoreContractV1";
+import {
+  DIRECTED_FEEDBACK_STORAGE_KEY_V1,
+  DIRECTED_SAVED_PATHS_STORAGE_KEY_V1,
+  DIRECTED_SESSION_STATE_STORAGE_KEY_V1,
+} from "./src/directedSessions/sessionStateV1";
 import {
   migrateLocalStateV1,
   readLocalStateRollbackSafe,
@@ -255,7 +265,10 @@ import {
 import { runSinglePreviewStart } from "./src/playback/singlePreviewStartCoordinator";
 import { resolveClassicPlaybackSourceV1 } from "./src/playback/classicPlaybackSourceV1";
 import { teardownResourcesConcurrently } from "./src/sessionReplacement";
-import { runOperationScopedCleanup } from "./src/playback/operationScopedCleanup";
+import {
+  retireClassicPlaybackResourcesForPortableReplacementV1,
+  runOperationScopedCleanup,
+} from "./src/playback/operationScopedCleanup";
 import { RecipeDerivationCoordinator } from "./src/recipeDerivation";
 import {
   browseFilterGroups,
@@ -390,11 +403,11 @@ const playbackTraceDisplayRefreshMillis = 250;
 const playbackTraceEventLoopGapThresholdMillis = 250;
 const sessionReplacementFadeMillis = 120;
 const appIterationInfo = {
-  label: "Alpha 0.18.1",
-  displayLabel: "Alpha 0.18.1 — Maximum-Text Layout Stability Correction",
-  currentUpdate: "Alpha 0.18.1 — Maximum-Text Layout Stability Correction",
-  codename: "maximum-text-layout-stability-correction-v1",
-  fullInternalLabel: "Alpha 0.18.1+maximum-text-layout-stability-correction-v1",
+  label: "Alpha 0.19.0",
+  displayLabel: "Alpha 0.19.0 — Offline, Persistence, and Recovery Hardening v1",
+  currentUpdate: "Alpha 0.19.0 — Offline, Persistence, and Recovery Hardening v1",
+  codename: "offline-persistence-recovery-hardening-v1",
+  fullInternalLabel: "Alpha 0.19.0+offline-persistence-recovery-hardening-v1",
   acceptedNativeBaseline: {
     label: "Alpha 0.11.7",
     displayLabel: "Alpha 0.11.7 — Single Preview Selection-Ready Fix",
@@ -1656,6 +1669,7 @@ function SoundscapeApp({
   const sessionStopInProgressRef = useRef(false);
   const sessionStopOperationIdRef = useRef(0);
   const sessionClearOperationIdRef = useRef(0);
+  const portableStateReplacementInProgressRef = useRef(false);
   const sessionReplacementGenerationRef = useRef(0);
   const playbackTraceStartedAtMillisRef = useRef(Date.now());
   const playbackTracePendingStatusRef = useRef<PlaybackTimingTraceStatusMilestones | null>(null);
@@ -2983,6 +2997,7 @@ function SoundscapeApp({
       if (!rawState) await appPersistence.saveLocalStateRaw(serializeLocalStateV1(state));
       const rawManifest = await appPersistence.loadOfflineManifestRaw();
       let parsedItems: OfflineManifestItemV1[] = [];
+      let restoredBuilderSession: BuilderSessionModelV1 | null = null;
       try {
         const parsed = rawManifest ? JSON.parse(rawManifest) : [];
         if (Array.isArray(parsed)) {
@@ -2993,8 +3008,18 @@ function SoundscapeApp({
       } catch {
         setOfflineActionStatus("Offline records were corrupt and were ignored without deleting media files.");
       }
+      try {
+        const builderSessions = state.data.builderSessionsRaw ? JSON.parse(state.data.builderSessionsRaw) : [];
+        restoredBuilderSession = validateImportedLocalBackupTransientStateV1(
+          { feedback: {}, builderSessions },
+          validSoundIds,
+        ).builderSession;
+      } catch (builderRecoveryError: unknown) {
+        setOfflineActionStatus(`Saved Builder state was invalid and was not restored. ${formatError(builderRecoveryError)}`);
+      }
       if (cancelled) return;
       setLocalState(state);
+      publishBuilderModel(restoredBuilderSession);
       offlineManifestItemsRef.current = parsedItems;
       setOfflineManifestItems(parsedItems);
       offlineManagerRef.current = new OfflineDownloadManager({
@@ -3013,12 +3038,32 @@ function SoundscapeApp({
       }
     });
     return () => { cancelled = true; };
-  }, []);
+  }, [validSoundIds]);
 
   useEffect(() => {
     offlineManifestItemsRef.current = offlineManifestItems;
     if (offlineManifestReady) appPersistence.saveOfflineManifestRaw(JSON.stringify(offlineManifestItems)).catch(() => undefined);
   }, [offlineManifestItems, offlineManifestReady]);
+
+  useEffect(() => {
+    if (!localState) return;
+    const builderSessionsRaw = JSON.stringify(activeBuilderModel ? [activeBuilderModel] : []);
+    if (localState.data.builderSessionsRaw === builderSessionsRaw) return;
+    const now = new Date().toISOString();
+    const nextLocalState: LocalStateEnvelopeV1 = Object.freeze({
+      ...localState,
+      profile: Object.freeze({
+        ...localState.profile,
+        revision: localState.profile.revision + 1,
+        updatedAt: now,
+      }),
+      data: Object.freeze({ ...localState.data, builderSessionsRaw }),
+    });
+    setLocalState(nextLocalState);
+    appPersistence.saveLocalStateRaw(serializeLocalStateV1(nextLocalState)).catch((storageError: unknown) => {
+      setOfflineActionStatus(`Builder state could not be saved. ${formatError(storageError)}`);
+    });
+  }, [activeBuilderModel, localState]);
 
   useEffect(() => {
     if (!settingsStorageReady) {
@@ -3731,6 +3776,10 @@ function SoundscapeApp({
     preserveSavedSessionStartGeneration = false,
     preserveSinglePreviewStart = false,
   ) => {
+    if (portableStateReplacementInProgressRef.current) {
+      setError("Playback is temporarily unavailable while local recovery state is being replaced.");
+      return;
+    }
     sessionClearOperationIdRef.current += 1;
     layeredPresetPreviewCoordinatorRef.current.invalidate();
     sessionRestartCoordinatorRef.current.invalidate();
@@ -4502,6 +4551,11 @@ function SoundscapeApp({
   };
 
   const handleSelectPreset = async (preset: MobileBuilderPreset) => {
+    if (portableStateReplacementInProgressRef.current) {
+      setFastStartMessage("Playback is temporarily unavailable while local recovery state is being replaced.");
+      setFastStartMessageTone("notice");
+      return;
+    }
     recordPlaybackTimingTrace("RECIPE_RESULT_REUSED surface=curated action=SelectPreviewUse reason=fixed-definition", {
       command: "recipe-reuse",
     });
@@ -5424,6 +5478,9 @@ function SoundscapeApp({
     preparedAudioUriOverride?: string,
     isOperationCurrent: () => boolean = () => true,
   ): Promise<boolean> => {
+    if (portableStateReplacementInProgressRef.current) {
+      return false;
+    }
     const soundToPlay = soundOverride ?? selectedSound;
     if (sessionStopInProgressRef.current) {
       return false;
@@ -6024,6 +6081,9 @@ function SoundscapeApp({
       timerMinutes: SessionTimerOptionMinutes;
     }>,
   ): Promise<boolean> => {
+    if (portableStateReplacementInProgressRef.current) {
+      return false;
+    }
     if (sessionStopInProgressRef.current || !isPlaybackIntentCurrent()) {
       return false;
     }
@@ -6775,7 +6835,33 @@ function SoundscapeApp({
     }
   };
 
-  const handleClearCurrentSessionFromSettings = async (): Promise<boolean> => {
+  const fenceClassicPlaybackAuthorityForPortableReplacementV1 = async (
+    isCurrent: () => boolean,
+  ): Promise<boolean> => {
+    const soundToFence = soundRef.current;
+    const layeredSoundsToFence = [...layeredSoundsRef.current];
+    stopLoadedReplayOptimisticProgressClock("unload", undefined, true, 0);
+    await retireClassicPlaybackResourcesForPortableReplacementV1([
+      ...(soundToFence ? [soundToFence] : []),
+      ...layeredSoundsToFence,
+    ]);
+    if (!isCurrent()) return false;
+    if (soundToFence && soundRef.current === soundToFence) {
+      soundRef.current = null;
+      setSound(null);
+      setLoadedSingleSoundId(null);
+      setIsPlaying(false);
+    }
+    if (layeredSoundsToFence.length) {
+      const retired = new Set(layeredSoundsToFence);
+      layeredSoundsRef.current = layeredSoundsRef.current.filter((resource) => !retired.has(resource));
+    }
+    setLayeredPreviewPresetId(null);
+    updateLayeredPreviewStatus("idle");
+    return true;
+  };
+
+  const handleClearCurrentSessionFromSettings = async (): Promise<number | null> => {
     sessionClearOperationIdRef.current += 1;
     const clearOperationId = sessionClearOperationIdRef.current;
     sessionRestartCoordinatorRef.current.invalidate();
@@ -6797,13 +6883,9 @@ function SoundscapeApp({
     setLayeredPreviewError(null);
     setLayeredUnavailableSoundIds(Object.freeze([]));
     clearSessionTimer();
-    const soundToClear = soundRef.current;
-    await Promise.all([
-      unloadCurrentSound(soundToClear),
-      stopOrUnloadLayeredPreview("idle", isClearCurrent),
-    ]);
-    if (!isClearCurrent()) {
-      return false;
+    const safelyFenced = await fenceClassicPlaybackAuthorityForPortableReplacementV1(isClearCurrent);
+    if (!safelyFenced || !isClearCurrent()) {
+      return null;
     }
     setCurrentSession(null);
     setSessionStopPhase("idle");
@@ -6812,7 +6894,7 @@ function SoundscapeApp({
     isLoopEnabledRef.current = false;
     resetProgressForSelection(selectedSoundRef.current);
     setActiveSection("player");
-    return true;
+    return clearOperationId;
   };
 
   const handleReplayOnboardingFromSettings = async () => {
@@ -7034,40 +7116,78 @@ function SoundscapeApp({
     AccessibilityInfo.announceForAccessibility(message);
   };
 
-  const buildCurrentBackupSnapshot = () => ({
-    profile: localState?.profile ?? null,
-    preferences: preferenceFeedback,
-    feedback: optimisticQuickFeedbackByKey,
-    savedSessions,
-    builderSessions: activeBuilderModel ? [activeBuilderModel] : [],
-    savedSoundIds,
-    recentSoundIds,
-    settings: { defaultTimerMinutes: defaultTimerPreference, startTabKey: startTabPreference },
-    currentSession,
-    catalogRevision: catalogRepository.revision,
-    offlineManifest: offlineManifestItems,
-  });
+  const parsePortableDirectedStorageV1 = (raw: string | null, label: string, fallback: unknown): unknown => {
+    if (raw === null) return fallback;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      throw new Error(`${label} is corrupt; repair or reset it before exporting or importing a merged backup.`);
+    }
+  };
+
+  const buildCurrentBackupSnapshot = async () => {
+    const [directedCheckpointRaw, directedSavedPathsRaw, directedFeedbackRaw] = await Promise.all([
+      appPersistence.storage.getItem(DIRECTED_SESSION_STATE_STORAGE_KEY_V1),
+      appPersistence.storage.getItem(DIRECTED_SAVED_PATHS_STORAGE_KEY_V1),
+      appPersistence.storage.getItem(DIRECTED_FEEDBACK_STORAGE_KEY_V1),
+    ]);
+    return {
+      profile: localState?.profile ?? null,
+      preferences: preferenceFeedback,
+      // Optimistic feedback is a transient write projection; the durable preference
+      // profile above is the portable feedback authority.
+      feedback: {},
+      savedSessions,
+      builderSessions: activeBuilderModel ? [activeBuilderModel] : [],
+      savedSoundIds,
+      recentSoundIds,
+      settings: { defaultTimerMinutes: defaultTimerPreference, startTabKey: startTabPreference },
+      currentSession,
+      catalogRevision: catalogRepository.revision,
+      offlineManifest: offlineManifestItems,
+      directed: {
+        checkpoint: parsePortableDirectedStorageV1(directedCheckpointRaw, "Directed recovery checkpoint", null),
+        savedPaths: parsePortableDirectedStorageV1(directedSavedPathsRaw, "Directed Saved paths", []),
+        feedback: parsePortableDirectedStorageV1(directedFeedbackRaw, "Directed feedback", []),
+      },
+    };
+  };
 
   const handleExportLocalBackup = async () => {
     if (!localState) {
       setBackupImportState((current) => ({ ...current, status: "Local profile is still loading." }));
       return;
     }
-    const createdAt = new Date().toISOString();
-    const backup = createLocalBackupV1(buildCurrentBackupSnapshot(), {
-      createdAt,
-      appReleaseIdentity: appIterationInfo.fullInternalLabel,
-    });
-    const text = serializeLocalBackupV1(backup);
-    const file = await writeLocalBackupFileV1(text, createdAt);
-    await shareLocalBackupFileV1(file);
-    const status = "Local backup exported. Media files are not embedded; eligible sounds must be downloaded again after import.";
-    setBackupImportState((current) => ({ ...current, status }));
-    AccessibilityInfo.announceForAccessibility(status);
+    try {
+      const createdAt = new Date().toISOString();
+      const snapshot = await buildCurrentBackupSnapshot();
+      validateImportedLocalBackupSnapshotV1(snapshot, {
+        validSoundIds,
+        timerOptions: new Set(sessionTimerOptions),
+        startTabKeys: new Set(mobileSectionNavOptions.map(({ key }) => key)),
+      });
+      const backup = createLocalBackupV1(snapshot, {
+        createdAt,
+        appReleaseIdentity: appIterationInfo.fullInternalLabel,
+      });
+      const text = serializeLocalBackupV1(backup);
+      const file = await writeLocalBackupFileV1(text, createdAt);
+      await shareLocalBackupFileV1(file);
+      const status = "Local backup exported. Media files are not embedded; eligible sounds must be downloaded again after import.";
+      setBackupImportState((current) => ({ ...current, status }));
+      AccessibilityInfo.announceForAccessibility(status);
+    } catch (exportError: unknown) {
+      const status = `Backup export stopped; local data was not changed. ${formatError(exportError)}`;
+      setBackupImportState((current) => ({ ...current, status }));
+      AccessibilityInfo.announceForAccessibility(status);
+    }
   };
 
   const handleImportLocalBackup = async () => {
+    let clearedClassicPlaybackAuthorityForImport = false;
+    let endedActiveDirectedSessionForImport = false;
     setBackupImportState((current) => ({ ...current, busy: true, status: "Validating backup before import…" }));
+    portableStateReplacementInProgressRef.current = true;
     try {
       const candidate = await pickLocalBackupTextV1();
       if (!candidate) {
@@ -7076,8 +7196,16 @@ function SoundscapeApp({
       }
       const validated = validateLocalBackupV1(candidate.text);
       if (!validated.ok) throw new Error(validated.reason);
-      const currentSnapshot = buildCurrentBackupSnapshot();
-      const next = applyLocalBackupV1(currentSnapshot, validated.backup, backupImportState.mode);
+      const currentSnapshot = await buildCurrentBackupSnapshot();
+      const mergedSnapshot = applyLocalBackupV1(currentSnapshot, validated.backup, backupImportState.mode);
+      const next = validateImportedLocalBackupSnapshotV1(mergedSnapshot, {
+        validSoundIds,
+        timerOptions: new Set(sessionTimerOptions),
+        startTabKeys: new Set(mobileSectionNavOptions.map(({ key }) => key)),
+        allowCurrentDeviceOfflineAuthority: backupImportState.mode === "merge",
+      }) as any;
+      const nextTransientState = validateImportedLocalBackupTransientStateV1(next, validSoundIds);
+      const ignoredTransientFeedbackCount = Object.keys(nextTransientState.feedback).length;
       const nextSettings: LocalSettings = {
         defaultTimerMinutes: sessionTimerOptions.includes(next.settings?.defaultTimerMinutes) ? next.settings.defaultTimerMinutes : 0,
         startTabKey: mobileSectionNavOptions.some((option) => option.key === next.settings?.startTabKey) ? next.settings.startTabKey : "fast-start",
@@ -7099,6 +7227,7 @@ function SoundscapeApp({
           settings: nextSettings,
           preferencesRaw: JSON.stringify(nextPreferences),
           savedSessionsRaw: JSON.stringify({ schemaVersion: 1, sessions: nextSavedSessions }),
+          builderSessionsRaw: JSON.stringify(nextTransientState.builderSession ? [nextTransientState.builderSession] : []),
           currentSessionRaw: next.currentSession ? JSON.stringify(next.currentSession) : null,
           catalogRevision: typeof next.catalogRevision === "string" ? next.catalogRevision : catalogRepository.revision,
           offlineManifest: nextManifest,
@@ -7107,6 +7236,14 @@ function SoundscapeApp({
         corruptionRecovered: false,
         migrationWarnings: Object.freeze([]),
       });
+      const classicFenceOperationIdForImport = await handleClearCurrentSessionFromSettings();
+      clearedClassicPlaybackAuthorityForImport = classicFenceOperationIdForImport !== null;
+      if (classicFenceOperationIdForImport === null) throw new Error("Classic playback changed while import was being prepared; retry after playback settles.");
+      const directedReplacement = await directedSessionServiceV1.preparePortableStateReplacementV1();
+      endedActiveDirectedSessionForImport = directedReplacement.endedActiveSession;
+      if (sessionClearOperationIdRef.current !== classicFenceOperationIdForImport) {
+        throw new Error("Classic playback authority changed after Directed recovery preparation; import was stopped before durable replacement.");
+      }
       await commitImportedLocalSnapshotV1({
         localStateRaw: serializeLocalStateV1(nextLocalState),
         savedSoundIds: nextSavedSoundIds,
@@ -7115,8 +7252,14 @@ function SoundscapeApp({
         preferencesRaw: JSON.stringify(nextPreferences),
         savedSessionsRaw: JSON.stringify({ schemaVersion: 1, sessions: nextSavedSessions }),
         offlineManifestRaw: JSON.stringify(nextManifest),
+        directedCheckpointRaw: next.directed.checkpoint ? JSON.stringify(next.directed.checkpoint) : null,
+        directedSavedPathsRaw: JSON.stringify(next.directed.savedPaths),
+        directedFeedbackRaw: JSON.stringify(next.directed.feedback),
+      }, {
+        isCurrent: () => sessionClearOperationIdRef.current === classicFenceOperationIdForImport,
       });
       setLocalState(nextLocalState);
+      publishBuilderModel(nextTransientState.builderSession);
       setSavedSoundIds(nextSavedSoundIds);
       setRecentSoundIds(nextRecentSoundIds);
       setSavedSessions(nextSavedSessions);
@@ -7133,13 +7276,15 @@ function SoundscapeApp({
         reserveBytes: offlineStorageReserveBytes,
         initialItems: nextManifest,
       });
-      const status = `Backup ${backupImportState.mode === "merge" ? "merged with" : "replaced"} this device after complete validation. Offline media bytes were not imported.`;
+      const status = `Backup ${backupImportState.mode === "merge" ? "merged with" : "replaced"} this device after complete validation. Offline media bytes were not imported. Classic playback authority was safely cleared before recovery state was replaced.${endedActiveDirectedSessionForImport ? " The previously active Directed session was also safely ended." : ""}${ignoredTransientFeedbackCount > 0 ? ` ${ignoredTransientFeedbackCount} legacy transient feedback record${ignoredTransientFeedbackCount === 1 ? " was" : "s were"} ignored; durable preference and Directed feedback remained authoritative.` : ""}`;
       setBackupImportState((current) => ({ ...current, busy: false, status }));
       AccessibilityInfo.announceForAccessibility(status);
     } catch (importError: unknown) {
-      const status = `Import rejected; current data was not changed. ${formatError(importError)}`;
+      const status = `Import rejected; stored data was not changed.${clearedClassicPlaybackAuthorityForImport ? " Classic playback authority was safely cleared before the attempted storage commit." : ""}${endedActiveDirectedSessionForImport ? " The previously active Directed session was ended before the storage commit so stale native state could not overwrite imported recovery state." : ""} ${formatError(importError)}`;
       setBackupImportState((current) => ({ ...current, busy: false, status }));
       AccessibilityInfo.announceForAccessibility(status);
+    } finally {
+      portableStateReplacementInProgressRef.current = false;
     }
   };
 
@@ -7149,10 +7294,23 @@ function SoundscapeApp({
       return;
     }
     setLocalDataResetPhase("deleting");
+    let clearedClassicPlaybackAuthorityForReset = false;
+    let endedActiveDirectedSessionForReset = false;
     AccessibilityInfo.announceForAccessibility("Resetting local Soundscape data");
+    portableStateReplacementInProgressRef.current = true;
     try {
-      await handleClearCurrentSessionFromSettings();
+      const classicFenceOperationIdForReset = await handleClearCurrentSessionFromSettings();
+      clearedClassicPlaybackAuthorityForReset = classicFenceOperationIdForReset !== null;
+      if (classicFenceOperationIdForReset === null) throw new Error("Classic playback changed while reset was being prepared; retry after playback settles.");
+      const directedReplacement = await directedSessionServiceV1.preparePortableStateReplacementV1();
+      endedActiveDirectedSessionForReset = directedReplacement.endedActiveSession;
+      if (sessionClearOperationIdRef.current !== classicFenceOperationIdForReset) {
+        throw new Error("Classic playback authority changed after Directed recovery preparation; reset was stopped before deletion.");
+      }
       await offlineManagerRef.current.deleteAll(new Date().toISOString(), new Set());
+      if (sessionClearOperationIdRef.current !== classicFenceOperationIdForReset) {
+        throw new Error("Classic playback authority changed during offline cleanup; durable local data was not deleted.");
+      }
       await resetSupportedLocalDataV1();
       const now = new Date().toISOString();
       const seed = `soundscape-${Date.now().toString(36)}`;
@@ -7163,6 +7321,7 @@ function SoundscapeApp({
       setSavedSoundIds([]);
       setRecentSoundIds([]);
       setSavedSessions([]);
+      publishBuilderModel(null);
       preferenceFeedbackRef.current = defaultLocalPreferenceFeedback;
       setPreferenceFeedback(defaultLocalPreferenceFeedback);
       offlineManifestItemsRef.current = [];
@@ -7178,12 +7337,14 @@ function SoundscapeApp({
       setShowOnboarding(true);
       setSettingsOpen(true);
       setLocalDataResetPhase("idle");
-      const status = "Local profile, preferences, feedback, Saved Sessions, recent history, and offline media were reset.";
+      const status = "Local profile, preferences, feedback, Classic and Directed saved state, recent history, and offline media were reset.";
       setBackupImportState((current) => ({ ...current, status }));
     } catch (resetError: unknown) {
       setSettingsOpen(true);
       setLocalDataResetPhase("idle");
-      setBackupImportState((current) => ({ ...current, status: `Reset did not complete. ${formatError(resetError)}` }));
+      setBackupImportState((current) => ({ ...current, status: `Reset did not complete.${endedActiveDirectedSessionForReset ? " The active Directed session was safely ended before local-data deletion began." : ""} ${formatError(resetError)}` }));
+    } finally {
+      portableStateReplacementInProgressRef.current = false;
     }
   };
 

@@ -1,15 +1,15 @@
 {
-  "canonicalPrivateCommit": "5c186c34bccbdbfe3a8191b184c02ec81fc03c15",
+  "canonicalPrivateCommit": "e5c763a69ccb10ac61dda040c86a7880ba76db73",
   "exportedPaths": [
     {
       "path": ".github/workflows/ios-internal.yml",
-      "byteLength": 14148,
-      "sha256": "717d969f3d95b87549d199f7b3d636a9a487911da7ca82c5ebdfbed14a22889b"
+      "byteLength": 14151,
+      "sha256": "873ab9ed795960238e8640f44a7084fab0baa99d62f4806affae2ff0a22559f6"
     },
     {
       "path": "App.tsx",
-      "byteLength": 580523,
-      "sha256": "1d7567423c4b0033cce4ef144c5c5de8c098c8a6e6c84e2138ef88886546e567"
+      "byteLength": 589985,
+      "sha256": "af024474f7106b27750cbd94707e3024991629554b26e773f8d74f151079c309"
     },
     {
       "path": "README.md",
@@ -18,13 +18,13 @@
     },
     {
       "path": "app.config.js",
-      "byteLength": 1880,
-      "sha256": "d532d7403460cce604fddf051266973fa0c82a3715bd215b9c0102bd644547d2"
+      "byteLength": 1883,
+      "sha256": "0c032948eb5b83bd16badc63fc61d38a474fbc20e0575c4a55f03c4dcc7d92b4"
     },
     {
       "path": "app.json",
       "byteLength": 1322,
-      "sha256": "5f2b404a7c32788fd4d3030b958a8d273c9e309e4ec71f677fb6e35a94f5b3fb"
+      "sha256": "b1a9d1d75b95fbd556f7b70f4d05b916df18375b8ee3f35b74c4618ac5cc7452"
     },
     {
       "path": "assets/icon.png",
@@ -108,8 +108,8 @@
     },
     {
       "path": "package.json",
-      "byteLength": 4300,
-      "sha256": "339d603f26a553e5e762d61719c0fb11ce8b39b603717f6f2225f0183ff531eb"
+      "byteLength": 4419,
+      "sha256": "2f7eeb579eac758d69a20f534f5531ae47c47d472245f74a155610f4481f84e3"
     },
     {
       "path": "scripts/alpha-0.16.3-ios-directed-opening-consumer-check.sh",
@@ -213,8 +213,13 @@
     },
     {
       "path": "src/contracts/localBackupContractV1.ts",
-      "byteLength": 8185,
-      "sha256": "7b36153dc174287943055a1907732535ebcd3c898d654bc9456f1480b10f4509"
+      "byteLength": 12971,
+      "sha256": "a363de16c8eaad8a9fff29af327cd5ce894018eb478072e18db8c7993813e9ba"
+    },
+    {
+      "path": "src/contracts/localBackupRestoreContractV1.ts",
+      "byteLength": 13471,
+      "sha256": "092e4f435d43a900c8333ca576483d9ce9c3ac43b17d275d60726e48774e903b"
     },
     {
       "path": "src/contracts/localBackupTransportContractV1.ts",
@@ -223,8 +228,8 @@
     },
     {
       "path": "src/contracts/localProfileContractV1.ts",
-      "byteLength": 5086,
-      "sha256": "b6f0f9e3414c74e7032527b4d7d3990d2c77bd8d28cf15aeedfe109021fb931c"
+      "byteLength": 5223,
+      "sha256": "898c607b8452228746fd84e7cae28834c5846784716245d85ba9d73ef49bfdf4"
     },
     {
       "path": "src/contracts/offlineManifestContractV1.ts",
@@ -428,8 +433,8 @@
     },
     {
       "path": "src/playback/operationScopedCleanup.ts",
-      "byteLength": 751,
-      "sha256": "888e1578c56d4a537d29fc6d782d6fa946aa91b47fd199e4ab9e2f0d10bc7440"
+      "byteLength": 2494,
+      "sha256": "f97ab5bf839186756b06b62f19b75ff43c5da413ee66af79a9364cb94b6e1721"
     },
     {
       "path": "src/playback/sessionRestartCoordinator.ts",
@@ -473,8 +478,8 @@
     },
     {
       "path": "src/services/appPersistence.ts",
-      "byteLength": 1609,
-      "sha256": "e4f3e848e76211739585e0c09e958fd4b44151eadf2126295f280f862d05c2e8"
+      "byteLength": 3546,
+      "sha256": "864d0d41f27ded52eeceb8dba4b5405ff0090278ba0884fd3d0c5c7a40184118"
     },
     {
       "path": "src/services/audioService.ts",
@@ -488,13 +493,18 @@
     },
     {
       "path": "src/services/directedSessionServiceV1.ts",
-      "byteLength": 67198,
-      "sha256": "f25c7225ada0fe144ebf49212afc22f35a6d98030100c04f645cc8de4af67cc6"
+      "byteLength": 67921,
+      "sha256": "60d433d8c7330871b800f44fe677c256bb5f4698e0ed57a9eb5b698aa0ce4c65"
     },
     {
       "path": "src/services/evidencePersistenceV1.ts",
       "byteLength": 3729,
       "sha256": "c451869c5f132bbe53c8bc9a2c4be1ecea86bc105e86ac8295d507bf4e7e563b"
+    },
+    {
+      "path": "src/services/importedLocalSnapshotTransactionV1.ts",
+      "byteLength": 9998,
+      "sha256": "6bd9a84e8e89a3d42bbe9dfe7afbceac578ce104df415b355b33ce4db3c01c26"
     },
     {
       "path": "src/services/ingestionManifestV1.ts",

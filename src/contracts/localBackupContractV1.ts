@@ -70,9 +70,29 @@ const assertSafe = (value: unknown, depth = 0): void => {
     return;
   }
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (["__proto__", "prototype", "constructor", "mediaBytes", "base64Audio"].includes(key)) throw new Error(`Unsafe backup key: ${key}`);
+    const normalizedKey = key.replace(/[^a-z0-9]/gi, "").toLowerCase();
+    if (
+      ["proto", "prototype", "constructor", "mediabytes", "base64audio", "accesstoken", "refreshtoken", "authorization", "password", "credential", "credentials", "privatekey", "signingkey", "clientsecret", "cookie", "cookies"].includes(normalizedKey)
+    ) throw new Error(`Unsafe backup key: ${key}`);
     assertSafe(entry, depth + 1);
   }
+};
+const assertPortableValues = (value: unknown, depth = 0): void => {
+  if (depth > 30) throw new Error("Backup structure is too deeply nested.");
+  if (typeof value === "string") {
+    if (
+      /\b(?:file|content|ph|assets-library|android\.resource|blob|capacitor|ionic|cdvfile|ms-appdata|ms-appx):/i.test(value)
+      || /(?:^|[\s"'=])\/(?:root|home|Users|private|var|tmp)(?:\/|$)/i.test(value)
+      || /(?:^|[\s"'=])[a-z]:[\\/]/i.test(value)
+    ) throw new Error("Backup contains a non-portable machine path.");
+    return;
+  }
+  if (value === null || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    for (const entry of value) assertPortableValues(entry, depth + 1);
+    return;
+  }
+  for (const entry of Object.values(value as Record<string, unknown>)) assertPortableValues(entry, depth + 1);
 };
 const withoutMediaBytes = (snapshot: any): any => {
   assertSafe(snapshot);
@@ -83,9 +103,14 @@ const withoutMediaBytes = (snapshot: any): any => {
       localUri: null,
       verifiedBytes: null,
       state: item.state === "available" ? "failed/retryable" : item.state,
+      stage: item.state === "available" ? "failed" : item.stage,
       lastError: item.state === "available" ? "Media bytes are not embedded in backup; re-download is required." : item.lastError ?? null,
+      lastErrorCode: item.state === "available" ? "stale" : item.lastErrorCode ?? null,
+      lastErrorCustomerCopy: item.state === "available" ? "Download again to make this sound available offline." : item.lastErrorCustomerCopy ?? null,
+      lastErrorTechnicalReason: item.state === "available" ? "Portable backup omitted device-local media bytes by contract." : item.lastErrorTechnicalReason ?? null,
     }));
   }
+  assertPortableValues(clone);
   return clone;
 };
 export function createLocalBackupV1(snapshot: any, options: { createdAt: string; appReleaseIdentity: string }): LocalBackupV1 {
@@ -107,6 +132,7 @@ export function validateLocalBackupV1(raw: string): { ok: true; backup: LocalBac
     if (new TextEncoder().encode(raw).length > 2_000_000) return { ok: false, reason: "Backup exceeds the 2 MB supported limit." };
     const parsed = JSON.parse(raw) as LocalBackupV1;
     assertSafe(parsed);
+    assertPortableValues(parsed);
     if (parsed.schemaVersion !== 1) return { ok: false, reason: "Incompatible backup schema." };
     if (!Number.isFinite(Date.parse(parsed.createdAt))) return { ok: false, reason: "Invalid backup creation time." };
     if (!/^Alpha 0\.\d+\.\d+/.test(parsed.appReleaseIdentity)) return { ok: false, reason: "Invalid app release identity." };
@@ -119,33 +145,91 @@ export function validateLocalBackupV1(raw: string): { ok: true; backup: LocalBac
   }
 }
 const mergeStrings = (a: unknown, b: unknown) => [...new Set([...(Array.isArray(a) ? a : []), ...(Array.isArray(b) ? b : [])].filter((value): value is string => typeof value === "string"))];
-const mergeById = (a: unknown, b: unknown) => {
+const numericOrDateRevision = (value: unknown): number => {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const timestamp = Date.parse(value);
+    if (Number.isFinite(timestamp)) return timestamp;
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric;
+  }
+  return 0;
+};
+const mergeByIdentity = (
+  a: unknown,
+  b: unknown,
+  identity: (value: any) => string,
+  revision: (value: any) => number = (value) => numericOrDateRevision(value?.revision ?? value?.updatedAt),
+  prefer?: (current: any, next: any) => any,
+) => {
   const result = new Map<string, any>();
   for (const value of [...(Array.isArray(a) ? a : []), ...(Array.isArray(b) ? b : [])]) {
-    const id = value && typeof value === "object" && typeof value.id === "string" ? value.id : stableStringify(value);
+    const id = identity(value);
     if (!result.has(id)) result.set(id, value);
     else {
       const current = result.get(id);
-      const currentRevision = Number(current?.revision ?? current?.updatedAt ?? 0);
-      const nextRevision = Number(value?.revision ?? value?.updatedAt ?? 0);
-      if (nextRevision > currentRevision) result.set(id, value);
+      if (prefer) result.set(id, prefer(current, value));
+      else if (revision(value) > revision(current)) result.set(id, value);
     }
   }
   return [...result.values()];
 };
+const identityField = (field: string) => (value: any): string => (
+  value && typeof value === "object" && typeof value[field] === "string" && value[field]
+    ? value[field]
+    : stableStringify(value)
+);
+const mergeOfflineManifest = (current: unknown, imported: unknown) => mergeByIdentity(
+  current,
+  imported,
+  identityField("assetId"),
+  (value) => Math.max(numericOrDateRevision(value?.operationId), numericOrDateRevision(value?.updatedAt)),
+  (accepted, candidate) => {
+    if (accepted?.state === "available" && accepted?.localUri && accepted?.verifiedBytes != null && candidate?.state !== "available") return accepted;
+    if (candidate?.state === "available" && candidate?.localUri && candidate?.verifiedBytes != null && accepted?.state !== "available") return candidate;
+    const acceptedRank = Math.max(numericOrDateRevision(accepted?.operationId), numericOrDateRevision(accepted?.updatedAt));
+    const candidateRank = Math.max(numericOrDateRevision(candidate?.operationId), numericOrDateRevision(candidate?.updatedAt));
+    return candidateRank > acceptedRank ? candidate : accepted;
+  },
+);
+const preferenceRevisionV1 = (value: unknown): number | null => {
+  if (!value || typeof value !== "object" || !Number.isInteger((value as Record<string, unknown>).revision)) return null;
+  const revision = Number((value as Record<string, unknown>).revision);
+  return revision >= 0 ? revision : null;
+};
+const selectPreferenceAuthorityV1 = (current: unknown, imported: unknown): unknown => {
+  const currentRevision = preferenceRevisionV1(current);
+  const importedRevision = preferenceRevisionV1(imported);
+  if (currentRevision === null) return imported;
+  if (importedRevision === null) return current;
+  if (importedRevision > currentRevision) return imported;
+  if (importedRevision < currentRevision) return current;
+  const currentUpdatedAt = numericOrDateRevision((current as Record<string, unknown>).updatedAt);
+  const importedUpdatedAt = numericOrDateRevision((imported as Record<string, unknown>).updatedAt);
+  return importedUpdatedAt > currentUpdatedAt ? imported : current;
+};
 export function applyLocalBackupV1(current: any, backup: LocalBackupV1, mode: LocalBackupModeV1): any {
   const imported = withoutMediaBytes(backup.payload);
   if (mode === "replace") return imported;
+  const currentDirected = current.directed && typeof current.directed === "object" ? current.directed : {};
+  const importedDirected = imported.directed && typeof imported.directed === "object" ? imported.directed : {};
   return {
     ...current,
     ...imported,
     profile: current.profile ?? imported.profile,
     savedSoundIds: mergeStrings(current.savedSoundIds, imported.savedSoundIds),
     recentSoundIds: mergeStrings(current.recentSoundIds, imported.recentSoundIds),
-    savedSessions: mergeById(current.savedSessions, imported.savedSessions),
-    builderSessions: mergeById(current.builderSessions, imported.builderSessions),
-    offlineManifest: mergeById(current.offlineManifest, imported.offlineManifest),
-    preferences: { ...(current.preferences ?? {}), ...(imported.preferences ?? {}) },
+    savedSessions: mergeByIdentity(current.savedSessions, imported.savedSessions, identityField("id")),
+    builderSessions: mergeByIdentity(current.builderSessions, imported.builderSessions, identityField("editId")),
+    offlineManifest: mergeOfflineManifest(current.offlineManifest, imported.offlineManifest),
+    preferences: selectPreferenceAuthorityV1(current.preferences, imported.preferences),
     feedback: { ...(current.feedback ?? {}), ...(imported.feedback ?? {}) },
+    directed: {
+      ...currentDirected,
+      ...importedDirected,
+      checkpoint: currentDirected.checkpoint ?? importedDirected.checkpoint ?? null,
+      savedPaths: mergeByIdentity(currentDirected.savedPaths, importedDirected.savedPaths, identityField("pathId")),
+      feedback: mergeByIdentity(currentDirected.feedback, importedDirected.feedback, (value) => stableStringify(value)),
+    },
   };
 }

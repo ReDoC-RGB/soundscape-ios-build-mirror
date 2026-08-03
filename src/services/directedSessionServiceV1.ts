@@ -1,4 +1,3 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import NativeMedia, { isDirectedJsonBridgePreNativeErrorV1 } from "../../modules/soundscape-layered-media";
 import type {
   NativeDirectedAdjustCommandV1,
@@ -418,10 +417,22 @@ export class DirectedSessionServiceV1 {
   }
 
   async loadCheckpoint(): Promise<DirectedSessionStateV1 | null> {
-    const checkpoint = parseDirectedCheckpointV1(await AsyncStorage.getItem(DIRECTED_SESSION_STATE_STORAGE_KEY_V1));
+    const checkpoint = parseDirectedCheckpointV1(await appPersistence.storage.getItem(DIRECTED_SESSION_STATE_STORAGE_KEY_V1));
     if (isRecoverableDirectedCheckpointV1(checkpoint)) return checkpoint;
-    if (checkpoint) await AsyncStorage.removeItem(DIRECTED_SESSION_STATE_STORAGE_KEY_V1);
+    if (checkpoint) await appPersistence.storage.removeItem(DIRECTED_SESSION_STATE_STORAGE_KEY_V1);
     return null;
+  }
+
+  async preparePortableStateReplacementV1(): Promise<Readonly<{ endedActiveSession: boolean }>> {
+    this.cancelPendingActivationV1();
+    const disposition = await this.reconcileForegroundOwnerV1();
+    if (disposition === "retain-current-retry") {
+      throw new Error("Directed session ownership could not be verified; backup replacement was stopped before local data changed.");
+    }
+    const active = this.current;
+    if (!active) return Object.freeze({ endedActiveSession: false });
+    await this.endDirectedSession(Object.freeze({ sessionId: active.sessionId, generationId: active.generationId }));
+    return Object.freeze({ endedActiveSession: true });
   }
 
   async getManifestItems(): Promise<readonly OfflineManifestItemV1[]> {
@@ -1056,12 +1067,12 @@ export class DirectedSessionServiceV1 {
     const checkpoint = nativeStateToCheckpoint(native);
     const saved = createSavedDirectedPathV1(checkpoint, { name, now: new Date().toISOString() });
     const existing = await this.loadSavedPaths();
-    await AsyncStorage.setItem(DIRECTED_SAVED_PATHS_STORAGE_KEY_V1, serializeSavedDirectedPathsV1([...existing, saved]));
+    await appPersistence.storage.setItem(DIRECTED_SAVED_PATHS_STORAGE_KEY_V1, serializeSavedDirectedPathsV1([...existing, saved]));
     return saved;
   }
 
   async loadSavedPaths(): Promise<SavedDirectedPathV1[]> {
-    return parseSavedDirectedPathsV1(await AsyncStorage.getItem(DIRECTED_SAVED_PATHS_STORAGE_KEY_V1));
+    return parseSavedDirectedPathsV1(await appPersistence.storage.getItem(DIRECTED_SAVED_PATHS_STORAGE_KEY_V1));
   }
 
   async renameSavedPath(pathId: string, name: string): Promise<SavedDirectedPathV1[]> {
@@ -1069,7 +1080,7 @@ export class DirectedSessionServiceV1 {
     const next = (await this.loadSavedPaths()).map((path) => path.pathId === pathId
       ? Object.freeze({ ...path, name: name.trim() || path.name, updatedAt: now })
       : path);
-    await AsyncStorage.setItem(DIRECTED_SAVED_PATHS_STORAGE_KEY_V1, serializeSavedDirectedPathsV1(next));
+    await appPersistence.storage.setItem(DIRECTED_SAVED_PATHS_STORAGE_KEY_V1, serializeSavedDirectedPathsV1(next));
     return next;
   }
 
@@ -1086,13 +1097,13 @@ export class DirectedSessionServiceV1 {
       updatedAt: now,
     });
     const next = [...current, duplicate];
-    await AsyncStorage.setItem(DIRECTED_SAVED_PATHS_STORAGE_KEY_V1, serializeSavedDirectedPathsV1(next));
+    await appPersistence.storage.setItem(DIRECTED_SAVED_PATHS_STORAGE_KEY_V1, serializeSavedDirectedPathsV1(next));
     return next;
   }
 
   async deleteSavedPath(pathId: string): Promise<SavedDirectedPathV1[]> {
     const next = (await this.loadSavedPaths()).filter((path) => path.pathId !== pathId);
-    await AsyncStorage.setItem(DIRECTED_SAVED_PATHS_STORAGE_KEY_V1, serializeSavedDirectedPathsV1(next));
+    await appPersistence.storage.setItem(DIRECTED_SAVED_PATHS_STORAGE_KEY_V1, serializeSavedDirectedPathsV1(next));
     return next;
   }
 
@@ -1100,12 +1111,12 @@ export class DirectedSessionServiceV1 {
     const native = this.requireCurrent();
     let rows: unknown[] = [];
     try {
-      const parsed = JSON.parse(await AsyncStorage.getItem(DIRECTED_FEEDBACK_STORAGE_KEY_V1) ?? "[]");
+      const parsed = JSON.parse(await appPersistence.storage.getItem(DIRECTED_FEEDBACK_STORAGE_KEY_V1) ?? "[]");
       if (Array.isArray(parsed)) rows = parsed;
     } catch {
       rows = [];
     }
-    await AsyncStorage.setItem(DIRECTED_FEEDBACK_STORAGE_KEY_V1, JSON.stringify([...rows, { sceneId: native.sceneId, scoreHash: native.scoreHash, value, recordedAt: new Date().toISOString() }]));
+    await appPersistence.storage.setItem(DIRECTED_FEEDBACK_STORAGE_KEY_V1, JSON.stringify([...rows, { sceneId: native.sceneId, scoreHash: native.scoreHash, value, recordedAt: new Date().toISOString() }]));
   }
 
   async downloadDirectedPackage(sceneId: DirectedSceneIdV1): Promise<DirectedAvailabilityProjectionV1> {
@@ -1268,7 +1279,7 @@ export class DirectedSessionServiceV1 {
       for (const listener of this.listeners) listener(state);
       if (!shouldPersistDirectedProjectionV1(this.lastPersistedNativeState, state)) return;
       try {
-        await AsyncStorage.setItem(DIRECTED_SESSION_STATE_STORAGE_KEY_V1, serializeDirectedCheckpointV1(nativeStateToCheckpoint(state)));
+        await appPersistence.storage.setItem(DIRECTED_SESSION_STATE_STORAGE_KEY_V1, serializeDirectedCheckpointV1(nativeStateToCheckpoint(state)));
         this.lastPersistedNativeState = state;
       } catch {
         // Native state and listeners remain authoritative. Because the persisted fence is not
@@ -1283,13 +1294,13 @@ export class DirectedSessionServiceV1 {
     let terminalStatePersisted = false;
     let checkpointRemoved = false;
     try {
-      await AsyncStorage.setItem(DIRECTED_SESSION_STATE_STORAGE_KEY_V1, serializeDirectedCheckpointV1(nativeStateToCheckpoint(state)));
+      await appPersistence.storage.setItem(DIRECTED_SESSION_STATE_STORAGE_KEY_V1, serializeDirectedCheckpointV1(nativeStateToCheckpoint(state)));
       terminalStatePersisted = true;
     } catch {
       terminalStatePersisted = false;
     }
     try {
-      await AsyncStorage.removeItem(DIRECTED_SESSION_STATE_STORAGE_KEY_V1);
+      await appPersistence.storage.removeItem(DIRECTED_SESSION_STATE_STORAGE_KEY_V1);
       checkpointRemoved = true;
     } catch {
       checkpointRemoved = false;

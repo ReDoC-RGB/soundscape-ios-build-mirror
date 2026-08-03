@@ -16,6 +16,7 @@ export type LocalStateDataV1 = Readonly<{
   settings: unknown;
   preferencesRaw: string | null;
   savedSessionsRaw: string | null;
+  builderSessionsRaw: string | null;
   currentSessionRaw: string | null;
   catalogRevision: string | null;
   offlineManifest: readonly unknown[];
@@ -36,6 +37,7 @@ type LegacyLocalState = Partial<{
   settings: unknown;
   preferencesRaw: unknown;
   savedSessionsRaw: unknown;
+  builderSessionsRaw: unknown;
   currentSessionRaw: unknown;
   catalogRevision: unknown;
   offlineManifest: unknown;
@@ -81,6 +83,7 @@ export function migrateLocalStateV1(input: { legacy: LegacyLocalState; seed: str
       settings: legacy.settings ?? null,
       preferencesRaw: nullableString(legacy.preferencesRaw),
       savedSessionsRaw: nullableString(legacy.savedSessionsRaw),
+      builderSessionsRaw: nullableString(legacy.builderSessionsRaw),
       currentSessionRaw: nullableString(legacy.currentSessionRaw),
       catalogRevision: nullableString(legacy.catalogRevision),
       offlineManifest: Object.freeze([...offlineManifest]),
